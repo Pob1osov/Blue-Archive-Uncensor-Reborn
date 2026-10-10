@@ -1,14 +1,13 @@
 name: Build and Sync to R2
 
 on:
-  workflow_dispatch: # 允许你在 GitHub Actions 页面手动点击运行
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *' # 每天 UTC 时间 0 点（北京时间早 8 点）自动检查官方更新
+    - cron: '0 11 * * *'
 
 jobs:
   build-and-sync:
     runs-on: ubuntu-latest
-    # 🚀 关键修复：赋予写入权限，解决最后的 403 报错
     permissions:
       contents: write
 
@@ -27,15 +26,16 @@ jobs:
           pip install -r requirements.txt
 
       - name: Get Current Official Version
+        env:
+          # 🚀 在这里填入你刚生成的 Cloudflare Worker 地址
+          VERSION_API_URL: https://ba-version-proxy.zoerliu.workers.dev
         run: |
           python scripts/getCurrentVersion.py --json-output current_version.json
-          # 从生成的 json 文件中提取版本号，写入环境变量，供后续步骤使用
           python -c "import json; d=json.load(open('current_version.json')); print(f'RESOURCE_VERSION={d[\"ResourceVersion\"]}')" >> $GITHUB_ENV
           python -c "import json; d=json.load(open('current_version.json')); print(f'TABLE_VERSION={d[\"TableVersion\"]}')" >> $GITHUB_ENV
 
       - name: Run Build Scripts (Generate Catalog, Manifest, Bundle)
         run: |
-          # 脚本会对比 current.txt 和当前官方版本，若有更新则强制全量构建
           python scripts/update_resources.py --current-version-file current_version.json
 
       - name: Configure AWS CLI for R2
@@ -55,7 +55,6 @@ jobs:
 
       - name: Update current.txt
         run: |
-          # 使用前面提取到的环境变量更新本地 current.txt
           python scripts/updateCurrentVersion.py --resource-version ${{ env.RESOURCE_VERSION }} --table-version ${{ env.TABLE_VERSION }}
 
       - name: Commit changes
@@ -63,6 +62,5 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add current.txt
-          # 如果文件没变化，commit 会报错，这里用 || exit 0 忽略它
           git commit -m "Auto-update current.txt [skip ci]" || exit 0
           git push
