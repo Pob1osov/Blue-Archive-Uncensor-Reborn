@@ -1,0 +1,31 @@
+name: Sync Release to R2
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: # 允许你手动点击运行测试
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download latest release ZIP
+        run: |
+          # 获取最新 Release 的 ZIP 下载链接
+          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/InfiniteAstra/Blue-Archive-Uncensor-Reborn/releases/latest | grep "browser_download_url.*zip" | cut -d '"' -f 4)
+          curl -L -o latest.zip "$DOWNLOAD_URL"
+      
+      - name: Unzip
+        run: unzip -o latest.zip -d ./unzipped
+      
+      - name: Configure AWS CLI for R2
+        run: |
+          pip install awscli
+          aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          aws configure set default.region auto
+      
+      - name: Upload to R2
+        run: |
+          # 将解压出来的文件同步到你的 ba-uncensor 存储桶
+          aws s3 sync ./unzipped s3://ba-uncensor --endpoint-url ${{ secrets.R2_ENDPOINT }}
