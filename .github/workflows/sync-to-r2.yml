@@ -45,3 +45,14 @@ jobs:
           R2_BUCKET: ba-uncensor
         run: |
           python scripts/uploadR2.py
+      - name: Update current.txt
+        run: |
+          python scripts/updateCurrentVersion.py --resource-version ${{ env.OFFICIAL_RESOURCE_VERSION }} --table-version ${{ env.OFFICIAL_TABLE_VERSION }}
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add current.txt
+          git commit -m "Auto-update current.txt" || exit 0
+          git push
