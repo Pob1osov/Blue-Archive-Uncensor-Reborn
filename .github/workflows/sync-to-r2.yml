@@ -1,31 +1,43 @@
-name: Sync Release to R2
+name: Build and Sync to R2
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch: # 允许你手动点击运行测试
+  workflow_dispatch: # 允许你手动点击触发
+  schedule:
+    - cron: '0 0 * * *' # 每天凌晨 0 点自动检查一次官方更新
 
 jobs:
-  sync:
+  build-and-sync:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Download latest release ZIP
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
         run: |
-          # 获取最新 Release 的 ZIP 下载链接
-          DOWNLOAD_URL=$(curl -s https://api.github.com/repos/InfiniteAstra/Blue-Archive-Uncensor-Reborn/releases/latest | grep "browser_download_url.*zip" | cut -d '"' -f 4)
-          curl -L -o latest.zip "$DOWNLOAD_URL"
-      
-      - name: Unzip
-        run: unzip -o latest.zip -d ./unzipped
-      
+          python -m pip install --upgrade pip
+          pip install requests UnityPy Pillow boto3
+
+      - name: Get Current Official Version
+        run: |
+          python scripts/getCurrentVersion.py --json-output current_version.json
+
+      - name: Run Build Scripts (Generate Catalog, Manifest, Bundle)
+        run: |
+          python scripts/update_resources.py --current-version-file current_version.json
+
       - name: Configure AWS CLI for R2
         run: |
-          pip install awscli
           aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
           aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
           aws configure set default.region auto
-      
+
       - name: Upload to R2
         run: |
-          # 将解压出来的文件同步到你的 ba-uncensor 存储桶
-          aws s3 sync ./unzipped s3://ba-uncensor --endpoint-url ${{ secrets.R2_ENDPOINT }}
+          # 注意：这里同步的是脚本生成的 modified/ 文件夹，而不是解压的 ZIP
+          aws s3 sync modified/ s3://ba-uncensor --endpoint-url ${{ secrets.R2_ENDPOINT }}
