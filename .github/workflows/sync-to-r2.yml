@@ -21,11 +21,14 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests UnityPy Pillow boto3
+          pip install -r requirements.txt
 
       - name: Get Current Official Version
         run: |
           python scripts/getCurrentVersion.py --json-output current_version.json
+          # 从 JSON 文件中提取版本号并写入环境变量，供后续步骤使用
+          python -c "import json; d=json.load(open('current_version.json')); print(f'RESOURCE_VERSION={d[\"ResourceVersion\"]}')" >> $GITHUB_ENV
+          python -c "import json; d=json.load(open('current_version.json')); print(f'TABLE_VERSION={d[\"TableVersion\"]}')" >> $GITHUB_ENV
 
       - name: Run Build Scripts (Generate Catalog, Manifest, Bundle)
         run: |
@@ -45,14 +48,17 @@ jobs:
           R2_BUCKET: ba-uncensor
         run: |
           python scripts/uploadR2.py
+
       - name: Update current.txt
         run: |
-          python scripts/updateCurrentVersion.py --resource-version ${{ env.OFFICIAL_RESOURCE_VERSION }} --table-version ${{ env.OFFICIAL_TABLE_VERSION }}
+          # 使用前面获取到的环境变量更新 current.txt
+          python scripts/updateCurrentVersion.py --resource-version ${{ env.RESOURCE_VERSION }} --table-version ${{ env.TABLE_VERSION }}
 
       - name: Commit changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add current.txt
-          git commit -m "Auto-update current.txt" || exit 0
+          # 如果文件没变化，git commit 会报错，这里用 || exit 0 忽略它
+          git commit -m "Auto-update current.txt [skip ci]" || exit 0
           git push
