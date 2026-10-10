@@ -770,10 +770,15 @@ def main() -> int:
         "Android/bundleDownloadInfo.json"
     )
 
-    old_catalog = download_json(
-        old_catalog_url,
-        old_catalog_path,
-    )
+     try:
+         old_catalog = download_json(
+             old_catalog_url,
+             old_catalog_path,
+         )
+     except Exception as e:
+         print(f"下载旧版 Catalog 失败 ({old_catalog_url}): {e}")
+         print("使用空 Catalog 进行对比，强制全量构建...")
+         old_catalog = {"BundleFiles": []}
 
     official_catalog = download_json(
         official_catalog_url,
