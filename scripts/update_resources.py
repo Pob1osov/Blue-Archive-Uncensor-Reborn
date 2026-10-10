@@ -770,15 +770,15 @@ def main() -> int:
         "Android/bundleDownloadInfo.json"
     )
 
-     try:
-         old_catalog = download_json(
-             old_catalog_url,
-             old_catalog_path,
-         )
-     except Exception as e:
-         print(f"下载旧版 Catalog 失败 ({old_catalog_url}): {e}")
-         print("使用空 Catalog 进行对比，强制全量构建...")
-         old_catalog = {"BundleFiles": []}
+    try:
+        old_catalog = download_json(
+            old_catalog_url,
+            old_catalog_path,
+        )
+    except Exception as e:
+        print(f"下载旧版 Catalog 失败 ({old_catalog_url}): {e}")
+        print("使用空 Catalog 进行对比，强制全量构建...")
+        old_catalog = {"BundleFiles": []}
 
     official_catalog = download_json(
         official_catalog_url,
@@ -959,7 +959,7 @@ def main() -> int:
     )
 
     # ========================================================
-    # 10. 下载旧 ExcelDB
+    # 10. 下载旧 ExcelDB (增加容错处理)
     # ========================================================
 
     excel_old_path = (
@@ -967,25 +967,33 @@ def main() -> int:
         / "ExcelDB_old.db"
     )
 
-    download_bytes(
-        OLD_EXCEL_DB_URL,
-        excel_old_path,
-    )
+    has_old_excel = False
+    try:
+        download_bytes(
+            OLD_EXCEL_DB_URL,
+            excel_old_path,
+        )
+        has_old_excel = True
+    except Exception as e:
+        print(f"下载旧版 ExcelDB 失败: {e}")
+        print("无法进行文本替换，将直接使用官方最新 ExcelDB。")
 
     # ========================================================
     # 11. updateExcelDB.py
     # ========================================================
 
-    run_script(
-        "updateExcelDB.py"
-    )
-
-    if not excel_new_path.exists():
-
-        raise RuntimeError(
-            "updateExcelDB.py 执行后 "
-            "没有生成 ExcelDB_new.db"
+    if has_old_excel:
+        run_script(
+            "updateExcelDB.py"
         )
+
+        if not excel_new_path.exists():
+            raise RuntimeError(
+                "updateExcelDB.py 执行后 "
+                "没有生成 ExcelDB_new.db"
+            )
+    else:
+        print("跳过 updateExcelDB.py 执行。")
 
     # ========================================================
     # 12. 计算 ExcelDB MD5
