@@ -37,7 +37,11 @@ jobs:
           aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
           aws configure set default.region auto
 
-      - name: Upload to R2
+      - name: Upload to R2 using Python
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ba-uncensor
         run: |
-          # 注意：这里同步的是脚本生成的 modified/ 文件夹，而不是解压的 ZIP
-          aws s3 sync modified/ s3://ba-uncensor --endpoint-url ${{ secrets.R2_ENDPOINT }}
+          python scripts/uploadR2.py
