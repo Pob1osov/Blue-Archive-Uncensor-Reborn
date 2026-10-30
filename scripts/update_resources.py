@@ -814,6 +814,8 @@ def main() -> int:
     # 2. 下载发生变化的 Bundle
     # ========================================================
 
+    downloaded_count = 0
+
     for entry in differences:
 
         name = entry["Name"]
@@ -840,16 +842,39 @@ def main() -> int:
             output,
         )
 
+        downloaded_count += 1
+
     # ========================================================
     # 3. replaceTexture2D.py
     # ========================================================
+    #
+    # 只有在根目录真的有新的 .bundle 时才需要跑。
+    # 官方只更新 TableVersion 时 differences 为 0（或者差异项全在
+    # AssetExclusions 里），根目录下一个 .bundle 都没有，
+    # replaceTexture2D.py 会以「没有找到任何 .bundle」退出码 1 中断整条流水线。
+    # ========================================================
 
-    run_script(
-        "replaceTexture2D.py"
-    )
+    if downloaded_count > 0:
+
+        run_script(
+            "replaceTexture2D.py"
+        )
+
+    else:
+
+        print()
+        print(
+            "[SKIP] 没有下载到新的 Bundle，" 
+            "跳过 replaceTexture2D.py"
+        )
 
     # ========================================================
     # 4. calculateMD5.py
+    # ========================================================
+    #
+    # 这一步不能跳过。
+    # 它还会读取 assetexclusions/ 里的 Bundle，把它们真实的 MD5/Size
+    # 写回 catalog；客户端的资源替换正是靠这些 Crc 记录生效的。
     # ========================================================
 
     run_script(
