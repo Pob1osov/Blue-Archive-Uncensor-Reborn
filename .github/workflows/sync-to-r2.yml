@@ -1,66 +1,217 @@
 name: Build and Sync to R2
 
 on:
+  # 手动触发，可强制
   workflow_dispatch:
+    inputs:
+      force:
+        description: "忽略版本比对，强制执行一次完整构建"
+        type: boolean
+        default: false
+
+  # fork 被 Sync fork / 自动合并 / 手动 merge 更新时立刻触发
+  push:
+    branches:
+      - dev-r2
+
+  # fork 自己的 schedule 不会因为母仓库更新而触发，必须自己轮询。
+  # 每小时一次：官方发新版本后能尽快跟上，检查本身几乎零成本。
   schedule:
-    - cron: '0 11 * * *'
+    - cron: '0 * * * *'
+
+concurrency:
+  group: ba-uncensor-r2-${{ github.ref }}
+  # 不要中途取消：R2 上传被打断会留下一半资源
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONIOENCODING: "utf-8"
+  # 母仓库。它真正在更新的分支是 main_manual，但那是另一套脚本体系
+  # （get_version.py / update_all.py），合并进来会覆盖本仓库的
+  # getCurrentVersion.py / update_resources.py，所以这里只跟踪 dev-r2。
+  UPSTREAM_REPO: InfiniteAstra/Blue-Archive-Uncensor-Reborn
+  UPSTREAM_BRANCH: dev-r2
+  VERSION_API_URL: https://ba-version-proxy.zoerliu.workers.dev
 
 jobs:
   build-and-sync:
+    name: Build & Sync
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    timeout-minutes: 180
+    # 本 workflow 自己提交 current.txt 时带 [skip ci]，不会回头再触发本任务
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
-      - name: Set up Python
+      # ======================================================
+      # 母仓库有新提交就先合并进来，并记录「母仓库确实变了」
+      # 合并失败（冲突）不阻断构建，只是不采用母仓库的内容
+      # ======================================================
+      - name: Sync upstream
+        id: upstream
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          echo "merged=false" >> "$GITHUB_OUTPUT"
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
+
+          if ! git fetch --no-tags upstream "${UPSTREAM_BRANCH}"; then
+            echo "拉取母仓库失败，本次忽略"
+            exit 0
+          fi
+
+          ahead="$(git rev-list --count "HEAD..upstream/${UPSTREAM_BRANCH}" || echo 0)"
+          echo "母仓库领先本 fork ${ahead} 个提交"
+
+          if [ "${ahead}" -gt 0 ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            if git merge --ff-only "upstream/${UPSTREAM_BRANCH}"; then
+              echo "merged=true" >> "$GITHUB_OUTPUT"
+              echo "已快进合并到母仓库最新提交"
+            else
+              # 本 fork 有独立提交（Auto-update current.txt），快进不了就真合并；
+              # 冲突时放弃合并，回退到原状继续构建
+              if git merge --no-edit "upstream/${UPSTREAM_BRANCH}"; then
+                echo "merged=true" >> "$GITHUB_OUTPUT"
+                echo "已合并母仓库更新"
+              else
+                git merge --abort || true
+                echo "合并冲突，已回退，继续用当前分支构建"
+              fi
+            fi
+
+            # 母仓库提交本身的改动（工作流、脚本）若被合并进来，也要体现到本次运行
+            git submodule update --init --recursive 2>/dev/null || true
+          fi
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-      - name: Install Dependencies
+      # ======================================================
+      # 只装 requests，先做廉价版本比对
+      # ======================================================
+      - name: Check version
+        id: version
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet requests
 
-      - name: Get Current Official Version
+          # 版本代理挂了就退回官方 API，一次网络抖动不该让整条流水线变红
+          if ! python scripts/getCurrentVersion.py --json-output current_version.json; then
+            echo "版本代理不可用，改走官方 API"
+            unset VERSION_API_URL
+            python scripts/getCurrentVersion.py --json-output current_version.json
+          fi
+
+          python - <<'PY'
+          import json, os, pathlib, re
+
+          info = json.load(open("current_version.json", encoding="utf-8"))
+          text = pathlib.Path("current.txt").read_text(encoding="utf-8")
+
+          def grab(key):
+              m = re.search(rf"(?im)^\s*{key}\s*[:=]\s*(\d+)\s*$", text)
+              return m.group(1) if m else ""
+
+          repo_res, repo_tbl = grab("ResourceVersion"), grab("TableVersion")
+          off_res, off_tbl = str(info["ResourceVersion"]), str(info["TableVersion"])
+
+          print(f"repository: {repo_res} / {repo_tbl}")
+          print(f"official  : {off_res} / {off_tbl}")
+
+          # 官方版本变了，或者母仓库推来了新提交 -> 需要构建
+          changed = (repo_res != off_res) or (repo_tbl != off_tbl)
+          if os.environ.get("UPSTREAM_CHANGED") == "true":
+              changed = True
+          if os.environ.get("FORCE") == "true":
+              changed = True
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"changed={'true' if changed else 'false'}\n")
+              fh.write(f"resource_version={off_res}\n")
+              fh.write(f"table_version={off_tbl}\n")
+          PY
         env:
-          # 🚀 在这里填入你刚生成的 Cloudflare Worker 地址
-          VERSION_API_URL: https://ba-version-proxy.zoerliu.workers.dev
-        run: |
-          python scripts/getCurrentVersion.py --json-output current_version.json
-          python -c "import json; d=json.load(open('current_version.json')); print(f'RESOURCE_VERSION={d[\"ResourceVersion\"]}')" >> $GITHUB_ENV
-          python -c "import json; d=json.load(open('current_version.json')); print(f'TABLE_VERSION={d[\"TableVersion\"]}')" >> $GITHUB_ENV
+          UPSTREAM_CHANGED: ${{ steps.upstream.outputs.changed }}
+          FORCE: ${{ inputs.force }}
 
-      - name: Run Build Scripts (Generate Catalog, Manifest, Bundle)
+      # ======================================================
+      # 没有更新就在这里干净退出：不装重依赖、不碰 R2。
+      # 原来缺这一步，导致「没有新版本」时 update_resources.py 提前 return，
+      # modified/ 根本没生成，后面 uploadR2.py 直接抛
+      # RuntimeError("modified/ 不存在")，于是每次无更新的计划任务都以失败收场。
+      # ======================================================
+      - name: Nothing to do
+        if: steps.version.outputs.changed != 'true'
         run: |
-          python scripts/update_resources.py --current-version-file current_version.json
+          echo "官方版本未变化，母仓库也没有新提交，跳过构建。"
+          echo "### 无更新，正常跳过" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Configure AWS CLI for R2
+      - name: Install dependencies
+        if: steps.version.outputs.changed == 'true'
         run: |
-          aws configure set aws_access_key_id ${{ secrets.R2_ACCESS_KEY_ID }}
-          aws configure set aws_secret_access_key ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          aws configure set default.region auto
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
 
-      - name: Upload to R2 using Python
+      - name: Run build scripts
+        id: build
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          python scripts/update_resources.py \
+            --current-version-file current_version.json \
+            --github-output
+
+      # 下面所有步骤都要求 process 真的产出了资源（changed=true），
+      # 否则 uploadR2.py 会因为 modified/ 不存在而失败
+      - name: Upload to R2
+        if: >-
+          steps.version.outputs.changed == 'true' &&
+          steps.build.outputs.changed == 'true'
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ba-uncensor
-        run: |
-          python scripts/uploadR2.py
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/uploadR2.py
 
       - name: Update current.txt
+        if: >-
+          steps.version.outputs.changed == 'true' &&
+          steps.build.outputs.changed == 'true'
         run: |
-          python scripts/updateCurrentVersion.py --resource-version ${{ env.RESOURCE_VERSION }} --table-version ${{ env.TABLE_VERSION }}
+          set -euo pipefail
+          python scripts/updateCurrentVersion.py \
+            --resource-version "${{ steps.version.outputs.resource_version }}" \
+            --table-version "${{ steps.version.outputs.table_version }}"
 
       - name: Commit changes
+        if: >-
+          steps.version.outputs.changed == 'true' &&
+          steps.build.outputs.changed == 'true'
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          set -euo pipefail
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add current.txt
-          git commit -m "Auto-update current.txt [skip ci]" || exit 0
+          if git diff --cached --quiet; then
+            echo "current.txt 无变化，无需提交"
+            exit 0
+          fi
+          git commit -m "Auto-update current.txt [skip ci]"
           git push
