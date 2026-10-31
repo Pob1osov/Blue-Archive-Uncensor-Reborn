@@ -196,6 +196,31 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/uploadR2.py
 
+      # 对账：R2 上可能存在历史遗留的脏对象 —— 文件名在 catalog 里，
+      # 但内容（字节数）与 catalog 声明不符。典型来源是这些文件某次
+      # 上传失败后留下半成品，而它们又不在本轮的下载差异里，
+      # 于是永远不会被 uploadR2.py 覆盖。
+      #
+      # 客户端遇到这种对象会：下载 -> 按 catalog 的 Crc 校验失败 ->
+      # 删除重下 -> 永远下不完，表现为每次启动都持续十几 MB/s 下行。
+      #
+      # reconcileR2.py 会列出 R2 上所有对象、与 catalog 比对大小，
+      # 对不一致的对象用「assetexclusions 里的同名文件」或「官方原文件」
+      # 覆盖，并在上传后再次校验。任何一项修不好就以非零码退出。
+      #
+      # 注意：这一步只覆盖「R2 上已经存在但内容不对」的对象；
+      # R2 上不存在的条目一律跳过，客户端会回落到官方源。
+      - name: Reconcile R2 against catalog
+        if: >-
+          steps.version.outputs.changed == 'true' &&
+          steps.build.outputs.changed == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python scripts/reconcileR2.py
+
       - name: Update current.txt
         if: >-
           steps.version.outputs.changed == 'true' &&
