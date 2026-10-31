@@ -616,6 +616,13 @@ def main() -> int:
         action="store_true",
     )
 
+    # 工作流里勾选 force 时会传 --force 进来，
+    # 忽略 current.txt 与官方版本的比对，强制执行一次完整构建。
+    parser.add_argument(
+        "--force",
+        action="store_true",
+    )
+
     args = parser.parse_args()
 
     current_version_file = Path(
@@ -685,6 +692,15 @@ def main() -> int:
         repository_table_version
         != official_table_version
     )
+
+    if args.force:
+
+        print()
+        print(
+            "[FORCE] 忽略版本比对，强制执行完整构建。"
+        )
+
+        changed = True
 
     if not changed:
 
