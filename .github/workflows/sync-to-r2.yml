@@ -171,11 +171,17 @@ jobs:
       - name: Run build scripts
         id: build
         if: steps.version.outputs.changed == 'true'
+        env:
+          FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
+          args=()
+          # 勾选 force 时必须把 --force 传进脚本，否则脚本仍以「版本未变化」
+          # 提前 return、写入 changed=false，导致 Upload to R2 被跳过。
+          if [ "${FORCE}" = "true" ]; then args+=(--force); fi
           python scripts/update_resources.py \
             --current-version-file current_version.json \
-            --github-output
+            --github-output "${args[@]}"
 
       # 下面所有步骤都要求 process 真的产出了资源（changed=true），
       # 否则 uploadR2.py 会因为 modified/ 不存在而失败
