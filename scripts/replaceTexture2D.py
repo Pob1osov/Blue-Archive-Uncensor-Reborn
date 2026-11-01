@@ -105,11 +105,16 @@ CATALOG_URL_MAX = (
 
 def load_bundle_index() -> dict[str, dict] | None:
     """
-    读取当前版本的 bundle 清单，返回 {规范化名字: 条目}。
+    读取当前版本的官方 bundle 清单，返回 {规范化名字: 条目}。
 
     国服实际用的是 bundleDownloadInfo.json（不是 Unity 的 catalog_Android.json），
     结构形如 {"BundleFiles": [{"Name": ..., "Size": ..., "Crc": ...}]}。
-    优先用 update_resources.py 已下好的本地副本，没有就去官方拉。
+
+    这里优先直接向官方拉取。不优先用本地副本，是因为 update_resources.py 在
+    调用本脚本时，modified/ 目录才刚刚开始填充，本地那份的来源不可靠 ——
+    实测在 CI 上会读到与本地不同的清单，导致同名 bundle 匹配到错误的版本
+    （例如 common-03 拿到 24 KB 的增量补丁而不是 14 MB 的主资源包）。
+    统一走官方源，本地开发与 CI 行为才一致。
     """
 
     version_file = ROOT_DIR / "current.txt"
@@ -122,42 +127,44 @@ def load_bundle_index() -> dict[str, dict] | None:
                     resource_version = v.strip()
 
     payload = None
-    candidates = []
     if resource_version:
-        candidates.append(
-            MODIFIED_DIR / "AssetBundles" / "Catalog" / resource_version
-            / "Android" / "bundleDownloadInfo.json"
-        )
-    candidates.append(ROOT_DIR / "bundleDownloadInfo.json")
-
-    for path in candidates:
-        if path.exists():
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                print(f"  [INFO] 使用本地 bundle 清单: {path.name}")
-                break
-            except Exception:
-                continue
-
-    if payload is None and resource_version:
         url = f"{CATALOG_URL_MAX}/{resource_version}/Android/bundleDownloadInfo.json"
         try:
-            with urllib.request.urlopen(url, timeout=60) as resp:
+            with urllib.request.urlopen(url, timeout=90) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
-            print("  [INFO] 已从官方拉取 bundleDownloadInfo.json")
+            print(f"  [INFO] 已从官方拉取清单 (ResourceVersion={resource_version})")
         except Exception as exc:
-            print(f"  [WARN] 拉取 bundleDownloadInfo.json 失败: {exc}")
-            return None
+            print(f"  [WARN] 拉取官方清单失败: {exc}")
+
+    if payload is None:
+        # 网络不可用时才退回本地副本
+        candidates = []
+        if resource_version:
+            candidates.append(
+                MODIFIED_DIR / "AssetBundles" / "Catalog" / resource_version
+                / "Android" / "bundleDownloadInfo.json"
+            )
+        candidates.append(ROOT_DIR / "bundleDownloadInfo.json")
+        for path in candidates:
+            if path.exists():
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                    print(f"  [INFO] 回退使用本地清单: {path}")
+                    break
+                except Exception:
+                    continue
 
     if not payload:
         return None
 
-    entries = payload.get("BundleFiles") or payload.get("BundleFiles".lower()) or []
+    entries = payload.get("BundleFiles") or []
 
     # 兼容 Unity 原生 catalog 形状（万一以后换回）
     if not entries:
         ids = payload.get("m_InternalIds") or []
         entries = [{"Name": Path(u).name} for u in ids if isinstance(u, str)]
+
+    print(f"  [INFO] 清单条目数: {len(entries)}")
 
     index: dict[str, dict] = {}
     for entry in entries:
@@ -165,6 +172,19 @@ def load_bundle_index() -> dict[str, dict] | None:
         if not name:
             continue
         stem = BUNDLE_SUFFIX_RE.sub("", Path(name).stem).lower()
+
+        # 同名 bundle 会存在多个版本，例如
+        #   uis-01_common-03_nonequipment-...-2026-06-04_assets_all_2254605384.bundle  (14 MB，主资源)
+        #   uis-01_common-03_nonequipment-...-2026-07-23_assets_all_3238474603.bundle  (8 KB，补丁)
+        #   uis-01_common-03_nonequipment-...-2026-09-17_assets_all_1976541592.bundle  (25 KB，补丁)
+        # 后两个是增量覆盖包，体积小、只含少量对象。要烘焙纹理必须拿主资源那个，
+        # 否则会出现「明明匹配到了 bundle，却一张图都没替换」。
+        previous = index.get(stem)
+        if previous is not None:
+            old_size = int(previous.get("Size") or 0)
+            new_size = int(entry.get("Size") or 0)
+            if old_size >= new_size:
+                continue
         index[stem] = entry
     return index
 
