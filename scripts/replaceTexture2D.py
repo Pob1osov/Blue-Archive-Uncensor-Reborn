@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+import shutil
 import sys
+import urllib.request
 from pathlib import Path
 
 import UnityPy
@@ -16,6 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 REPLACEMENT_DIR = ROOT_DIR / "replacement"
 OUT_DIR = ROOT_DIR / "out"
+MODIFIED_DIR = ROOT_DIR / "modified"
 
 
 # Bundle 名称末尾：
@@ -74,6 +79,150 @@ def find_bundle_candidates(
         if normalize_bundle_name(bundle).lower()
         == replacement_name_lower
     ]
+
+
+# ============================================================
+# 从官方 Catalog 找并提供缺失的 Bundle
+# ============================================================
+#
+# 背景（这是本仓库长期存在的一个真实缺陷）：
+#
+# update_resources.py 只在「官方 Bundle 与本地版本有差异」时才把 bundle 下载到
+# 仓库根目录，然后才调用 replaceTexture2D.py。但官方经常只推 TableVersion、
+# 不动 AssetBundle —— 此时差异为 0，根目录下没有任何 .bundle，
+# replaceTexture2D.py 会以「没有找到任何 .bundle」退出码 1 结束，
+# 于是 replacement/ 里的 96 张替换图永远不会被烘焙，R2 上的 UI 就一直是中文。
+#
+# 修法：replacement 里的每个文件夹都对应一个确定的 bundle 名。若根目录没有，
+# 就按官方 Catalog 查出该 bundle 的下载地址，下下来再烘焙。这样视觉层不再依赖
+# 「官方恰好更新了那个 bundle」。
+
+CATALOG_URL_MAX = (
+    "https://static.bluearchive-cn.com"
+    "/prodm39/AssetBundles/Catalog"
+)
+
+
+def load_bundle_index() -> dict[str, dict] | None:
+    """
+    读取当前版本的 bundle 清单，返回 {规范化名字: 条目}。
+
+    国服实际用的是 bundleDownloadInfo.json（不是 Unity 的 catalog_Android.json），
+    结构形如 {"BundleFiles": [{"Name": ..., "Size": ..., "Crc": ...}]}。
+    优先用 update_resources.py 已下好的本地副本，没有就去官方拉。
+    """
+
+    version_file = ROOT_DIR / "current.txt"
+    resource_version = ""
+    if version_file.exists():
+        for line in version_file.read_text(encoding="utf-8").splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                if k.strip() == "ResourceVersion":
+                    resource_version = v.strip()
+
+    payload = None
+    candidates = []
+    if resource_version:
+        candidates.append(
+            MODIFIED_DIR / "AssetBundles" / "Catalog" / resource_version
+            / "Android" / "bundleDownloadInfo.json"
+        )
+    candidates.append(ROOT_DIR / "bundleDownloadInfo.json")
+
+    for path in candidates:
+        if path.exists():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                print(f"  [INFO] 使用本地 bundle 清单: {path.name}")
+                break
+            except Exception:
+                continue
+
+    if payload is None and resource_version:
+        url = f"{CATALOG_URL_MAX}/{resource_version}/Android/bundleDownloadInfo.json"
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            print("  [INFO] 已从官方拉取 bundleDownloadInfo.json")
+        except Exception as exc:
+            print(f"  [WARN] 拉取 bundleDownloadInfo.json 失败: {exc}")
+            return None
+
+    if not payload:
+        return None
+
+    entries = payload.get("BundleFiles") or payload.get("BundleFiles".lower()) or []
+
+    # 兼容 Unity 原生 catalog 形状（万一以后换回）
+    if not entries:
+        ids = payload.get("m_InternalIds") or []
+        entries = [{"Name": Path(u).name} for u in ids if isinstance(u, str)]
+
+    index: dict[str, dict] = {}
+    for entry in entries:
+        name = str(entry.get("Name") or entry.get("name") or "")
+        if not name:
+            continue
+        stem = BUNDLE_SUFFIX_RE.sub("", Path(name).stem).lower()
+        index[stem] = entry
+    return index
+
+
+def download_missing_bundle(
+    replacement_name: str,
+    bundle_index: dict[str, dict] | None,
+) -> Path | None:
+    """根目录没有对应 bundle 时，按官方清单下载一个。"""
+
+    if not bundle_index:
+        return None
+
+    wanted = replacement_name.lower()
+    entry = bundle_index.get(wanted)
+    if not entry:
+        return None
+
+    name = str(entry.get("Name") or entry.get("name"))
+    target = ROOT_DIR / name
+
+    # 根目录若已存在（可能是 update_resources 刚下的官方新版），直接复用
+    if target.exists():
+        return target
+
+    # update_resources.py 已下载过的副本也可能在 modified/ 下
+    for base in (MODIFIED_DIR / "AssetBundles" / "Android",):
+        alt = base / name
+        if alt.exists():
+            shutil.copy2(alt, target)
+            print(f"  [FETCH] 从 modified 复用: {name}")
+            return target
+
+    url = (
+        "https://static.bluearchive-cn.com"
+        f"/prodm39/AssetBundles/Android/{name}"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=300) as resp:
+            data = resp.read()
+    except Exception as exc:
+        print(f"  [WARN] 下载 {name} 失败: {exc}")
+        return None
+
+    # 有 Crc 就校验，防止半截文件被当成成品烘焙进去
+    expected = str(entry.get("Crc") or entry.get("crc") or "").lower()
+    if expected:
+        actual = hashlib.md5(data).hexdigest()
+        if actual != expected:
+            print(
+                f"  [WARN] {name} 校验不符 (期望 {expected[:8]} 实际 {actual[:8]})，跳过"
+            )
+            return None
+
+    target.write_bytes(data)
+    print(f"  [FETCH] 下载缺失 bundle: {name} ({len(data)} B)")
+    return target
+
 
 
 # ============================================================
@@ -391,16 +540,19 @@ def main() -> int:
 
     bundle_files.sort()
 
+    # 「根目录没有任何 .bundle」不再是致命错误：
+    # 下面会按需从官方 Catalog 下载 replacement 需要的那几个。
     if not bundle_files:
-        print(
-            "[ERROR] 没有找到任何 .bundle",
-            file=sys.stderr,
-        )
-        return 1
+        print()
+        print("[INFO] 根目录没有现成 .bundle，将按 replacement 需求从官方下载")
 
     print()
     print(f"Bundle 数量       : {len(bundle_files)}")
     print(f"Replacement 数量  : {len(replacement_dirs)}")
+
+    catalog = load_bundle_index()
+    if catalog is None:
+        print("[WARN] 读不到官方 bundle 清单，缺失的 bundle 将无法补齐")
 
     # --------------------------------------------------------
     # 统计
@@ -429,12 +581,29 @@ def main() -> int:
         )
 
         # ----------------------------------------------------
-        # 没有对应 Bundle
+        # 根目录没有这个 Bundle —— 主动从官方下载
+        #
+        # 官方只推 TableVersion 时，update_resources.py 的差异集为空，
+        # 根目录下不会有任何 .bundle，这里若直接跳过，replacement 里的
+        # 替换图就永远烘焙不进去（R2 上的 UI 会一直显示中文）。
+        # ----------------------------------------------------
+
+        if not candidates:
+            fetched = download_missing_bundle(
+                replacement_name,
+                catalog,
+            )
+            if fetched is not None:
+                candidates = [fetched]
+                bundle_files.append(fetched)
+
+        # ----------------------------------------------------
+        # 仍然没有对应 Bundle
         # ----------------------------------------------------
 
         if not candidates:
             print(
-                f"  [SKIP] 没有找到对应 Bundle"
+                f"  [SKIP] 没有找到对应 Bundle，且官方 Catalog 中也没有"
             )
             skipped_no_bundle += 1
             continue

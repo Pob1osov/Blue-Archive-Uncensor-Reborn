@@ -61,11 +61,11 @@ OFFICIAL_TABLE_BUNDLE_BASE = (
     "/prodm39/pool/TableBundles"
 )
 
-OLD_EXCEL_DB_URL = (
-    "https://mx.infastra.de5.net"
-    "/prodm39/pool/TableBundles/51/"
-    "517bb1fb1aa4d980ab87644ec10ecb2a"
-)
+# 注意：原先这里还有一个 OLD_EXCEL_DB_URL，指向外部镜像上的旧版 ExcelDB，
+# 供 updateExcelDB.py 做「旧库整行覆盖」。该机制依赖旧库与新库逐行对齐，
+# 官方表一旦增删行就会静默跳过、改了等于没改，已废弃。
+# 现在由 scripts/applyTextPatch.py 直接在官方现役表上就地改写。
+# updateExcelDB.py 仍保留在仓库里，但已不在流水线中被调用。
 
 
 # ============================================================
@@ -385,6 +385,7 @@ def find_bundle_differences(
 
 def run_script(
     script_name: str,
+    *args: str,
 ) -> None:
 
     script = SCRIPTS_DIR / script_name
@@ -403,6 +404,7 @@ def run_script(
         [
             sys.executable,
             str(script),
+            *args,
         ],
         cwd=ROOT_DIR,
         check=True,
@@ -864,25 +866,21 @@ def main() -> int:
     # 3. replaceTexture2D.py
     # ========================================================
     #
-    # 只有在根目录真的有新的 .bundle 时才需要跑。
-    # 官方只更新 TableVersion 时 differences 为 0（或者差异项全在
-    # AssetExclusions 里），根目录下一个 .bundle 都没有，
-    # replaceTexture2D.py 会以「没有找到任何 .bundle」退出码 1 中断整条流水线。
+    # 这一步必须无条件执行。
+    #
+    # 原来的写法是 if downloaded_count > 0 才跑，理由是「官方只更新 TableVersion
+    # 时 differences 为 0，根目录没有 .bundle，脚本会以退出码 1 中断流水线」。
+    # 但那个「保护」本身才是真正的 bug：一旦真的没有新 .bundle，
+    # replacement/ 里的替换图就永远不会被烘焙，R2 上的 UI 便一直是官方中文，
+    # 而且整个流程一切正常、毫无报错 —— 视觉层就这样静默失效了。
+    #
+    # 现在 replaceTexture2D.py 已支持「根目录没有就按官方 Catalog 现下」，
+    # 因此无论官方这次动没动 AssetBundle，都能把 96 张替换图烤进对应 bundle。
     # ========================================================
 
-    if downloaded_count > 0:
-
-        run_script(
-            "replaceTexture2D.py"
-        )
-
-    else:
-
-        print()
-        print(
-            "[SKIP] 没有下载到新的 Bundle，" 
-            "跳过 replaceTexture2D.py"
-        )
+    run_script(
+        "replaceTexture2D.py"
+    )
 
     # ========================================================
     # 4. calculateMD5.py
@@ -1000,41 +998,26 @@ def main() -> int:
     )
 
     # ========================================================
-    # 10. 下载旧 ExcelDB (增加容错处理)
+    # 10. 就地改写 ExcelDB（文本层 + 角色名 + 学年标签）
+    #
+    # 这里刻意不再下载旧版 ExcelDB。
+    # 原来的做法是「把旧库的整行 Bytes 按 Key 覆盖到新库」，它要求旧库与新库
+    # 逐行对齐：官方一旦新增/删除行，updateExcelDB.py 里的
+    #     if len(old_rows) != len(new_rows): print("[跳过]"); continue
+    # 就会静默跳过，脚本正常退出，但一个字都没改 —— 客户端拿到的还是官方中文，
+    # 而且没有任何报错提示。
+    #
+    # 现在改成直接在官方现役表上就地替换：不依赖旧库，没有对齐要求，
+    # 每次都会做残留校验，改不动就直接报错。
     # ========================================================
 
-    excel_old_path = (
-        ROOT_DIR
-        / "ExcelDB_old.db"
+    print()
+    print("[TEXT] 就地改写 ExcelDB（文本/角色名/学年）")
+
+    run_script(
+        "applyTextPatch.py",
+        str(excel_new_path),
     )
-
-    has_old_excel = False
-    try:
-        download_bytes(
-            OLD_EXCEL_DB_URL,
-            excel_old_path,
-        )
-        has_old_excel = True
-    except Exception as e:
-        print(f"下载旧版 ExcelDB 失败: {e}")
-        print("无法进行文本替换，将直接使用官方最新 ExcelDB。")
-
-    # ========================================================
-    # 11. updateExcelDB.py
-    # ========================================================
-
-    if has_old_excel:
-        run_script(
-            "updateExcelDB.py"
-        )
-
-        if not excel_new_path.exists():
-            raise RuntimeError(
-                "updateExcelDB.py 执行后 "
-                "没有生成 ExcelDB_new.db"
-            )
-    else:
-        print("跳过 updateExcelDB.py 执行。")
 
     # ========================================================
     # 12. 计算 ExcelDB MD5
