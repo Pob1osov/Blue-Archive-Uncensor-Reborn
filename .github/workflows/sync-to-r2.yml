@@ -140,10 +140,15 @@ jobs:
           if os.environ.get("FORCE") == "true":
               changed = True
 
+          # MediaVersion 用来定位 /Manifest/MediaResources/<mv>/MediaManifest，
+          # 那个文件流水线不生成，部署前要从官方转发（见 Fetch MediaManifest）
+          off_media = str(info.get("MediaVersion", "") or "")
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"changed={'true' if changed else 'false'}\n")
               fh.write(f"resource_version={off_res}\n")
               fh.write(f"table_version={off_tbl}\n")
+              fh.write(f"media_version={off_media}\n")
           PY
         env:
           UPSTREAM_CHANGED: ${{ steps.upstream.outputs.changed }}
@@ -183,6 +188,19 @@ jobs:
             --current-version-file current_version.json \
             --github-output "${args[@]}"
 
+      # MediaResources 的清单属于官方发行包，update_resources.py 不产出。
+      # 不补回来的话，部署到 Netlify 后整份目录里就没有它，客户端启动期
+      # 请求 /Manifest/MediaResources/<mv>/MediaManifest 会 302 到官方 ——
+      # 这本身无害，但如果哪天官方换了 MediaVersion，本地旧的残留反而更糟。
+      # 所以这里显式按「当前官方 MediaVersion」转发一份，保持目录自洽。
+      - name: Fetch MediaManifest
+        if: >-
+          steps.version.outputs.changed == 'true' &&
+          steps.build.outputs.changed == 'true'
+        run: >-
+          python scripts/fetchMediaManifest.py
+          --current-version-file current_version.json
+
       # 下面所有步骤都要求 process 真的产出了资源（changed=true），
       # 否则 uploadR2.py 会因为 modified/ 不存在而失败
       - name: Upload to R2
@@ -220,6 +238,42 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: python scripts/reconcileR2.py
+
+      # ======================================================
+      # 上线到玩家实际访问的站点。
+      #
+      # 前面所有步骤都只是「生成 + 备份到 R2」，而客户端 LocalizeConfig
+      # 里填的域名是 Netlify。缺这一步的话：官方发新版本 -> CI 构建成功
+      # -> R2 也传了 -> 玩家那边却还是上一次部署的旧表，于是表版本对不上、
+      # 客户端判定校验失败后重下官方版，所有补丁一夜之间全部失效。
+      #
+      # --dir=modified 配合仓库根的 netlify.toml：toml 里 publish 同样是
+      # modified，并带一条 force=false 的 catch-all 302 到官方 CDN，
+      # 所以「有补丁用补丁、没有就回官方」的行为和本地部署完全一致。
+      #
+      # 必须在 Fetch MediaManifest 之后：MediaManifest 不在
+      # update_resources.py 的产出里，漏掉它媒体资源会大面积 404。
+      # ======================================================
+      - name: Deploy to Netlify
+        if: >-
+          steps.version.outputs.changed == 'true' &&
+          steps.build.outputs.changed == 'true'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NETLIFY_AUTH_TOKEN}" ]; then
+            echo "::error::缺少 NETLIFY_AUTH_TOKEN，无法部署到玩家站点"
+            exit 1
+          fi
+          # Site ID 不是机密，留一个默认值，这样只配 token 也能跑
+          site="${NETLIFY_SITE_ID:-419a3c9c-347c-4b08-941f-c166ed28f578}"
+          npx --yes netlify-cli@17 deploy \
+            --prod \
+            --dir=modified \
+            --site "$site" \
+            --message "CI ${GITHUB_SHA:0:7} run ${GITHUB_RUN_NUMBER}"
 
       - name: Update current.txt
         if: >-

@@ -1,0 +1,26 @@
+# ======================================================================
+# 这个仓库既是补丁生成器，也是补丁站点的部署源。
+#
+# CI 跑完 scripts/update_resources.py 后，modified/ 就是一棵可以直接
+# 对外服务的静态目录树：
+#
+#   modified/AssetBundles/Android/<bundle>        烘焙过的 96 张替换贴图
+#   modified/AssetBundles/Catalog/<rv>/Android/   bundleDownloadInfo.json|hash
+#   modified/Manifest/TableBundles/<tv>/          TableManifest|Hash
+#   modified/Manifest/MediaResources/<mv>/        MediaManifest|Hash（转发官方）
+#   modified/pool/TableBundles/<xx>/<crc>         打好的 ExcelDB
+#
+# 客户端只会下载「本地缺失」的文件，所以目录里必须有全量条目；凡是本仓库
+# 不产出、也不该自造的路径（catalog_Android.zip、MediaBundles 等），一律
+# 302 到官方 CDN。注意 force = false：Netlify 会先找本地文件，找不到才
+# 走这条重定向，这正是我们要的「有补丁用补丁，没有就回官方」。
+# ======================================================================
+
+[build]
+  publish = "modified"
+
+[[redirects]]
+  from = "/*"
+  to = "https://static.bluearchive-cn.com/prodm39/:splat"
+  status = 302
+  force = false

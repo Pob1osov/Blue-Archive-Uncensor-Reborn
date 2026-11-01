@@ -26,6 +26,8 @@ modified/
 
 # Temporary version information
 .current_version.json
+# workflow 里 getCurrentVersion.py 实际写的是无点的这个名字
+current_version.json
 
 # Local/editor files
 .vscode/
