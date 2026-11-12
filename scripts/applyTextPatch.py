@@ -358,23 +358,12 @@ def main() -> int:
     con.commit()
     print(f"[TEXT] 学年层      : {year_changed} 个角色")
 
-    # 名字改名必须放最后：它会改变行内字节布局（吃零填充 / 行末变长）。
-    # 放在其它层之后，前面的规则仍按官方原始布局匹配，不会互相干扰。
-    rows, cnt, left = rename_geng(cur)
-    con.commit()
-    print(
-        "[TEXT] 改名层      : %d 行（吃零填充 %d / 行末变长 %d / 缩小 %d）"
-        % (rows, cnt["A"], cnt["B"], cnt["S"])
-    )
-    eq = apply_equal_len(cur)
-    con.commit()
-    print(f"[TEXT] 等字节重写  : {eq} 处")
-
-    # 收尾自检：仍有「庚」说明规则没覆盖到，直接抛错，不推半成品
-    leftover = [s for _, _, s in _scan_leftover(cur)]
-    if leftover:
-        con.close()
-        raise RuntimeError("仍有「庚」未处理: %r" % leftover[:4])
+    # 名字改名已整体撤销：游戏里恢复官方原名「庚」。
+    # 背景：变长方案（庚 3B -> 鹿江 6B）会让 10126 学生详情页卡死；
+    # 等字节方案（庚 -> 鹿）能跑但名字只剩「板垣鹿」。两者都不理想，
+    # 用户决定改回「庚」，所以这里既不调用 rename_geng，也不再自检
+    # 「庚」是否清零 —— 它本来就该存在。
+    _ = (rename_geng, apply_equal_len)  # 保留导入，供将来按需复用
 
     # 不做 VACUUM：VACUUM 会重排页布局，改变最终 MD5 和文件大小，
     # 导致同一份官方表每次构建产出不同的 Crc（客户端会误判为又更新了）。
