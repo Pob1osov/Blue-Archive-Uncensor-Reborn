@@ -28,6 +28,11 @@ import struct
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from renameGeng import (  # noqa: E402
+    rename_geng, apply_equal_len, check_equal_len, find_slot, SKIP_TABLES,
+)
+
 # ============================================================
 # 替换规则
 # ============================================================
@@ -50,9 +55,13 @@ TEXT_RULES = [
     ("被动技能", "强化技能"),
     ("辅助技能", "子技能"),
     ("技能升级", "技能成长"),
+    # 角色名「庚」->「鹿江」。LocalizeDBSchema 是独立布局（40 字节头 +
+    # 长度前缀 + 4 字节对齐填充），变长必须走这里按长度重建。
+    # 其它表（flatbuffer 槽）交给 renameGeng，两者范围互不重叠。
+    ("庚", "鹿江"),
 ]
 
-# 只有当整条字符串完全等于左侧时才替换。
+# 仅当整条字符串完全等于左侧时才替换。
 # 这条规则很关键：「等级」在表里是 14 个界面共用的标签，但「学员等级」
 # 「必杀技能等级」「技能等级」是各自独立的完整字符串，全局替换会把它们
 # 一并改成「学员Lv.」，那是错的。所以只认整条相等。
@@ -60,6 +69,18 @@ EXACT_RULES = {
     "公告": "Notice",
     "未命中": "MISS",
     "等级": "Lv.",
+    # 属性面板：整条相等才换，避免污染「体力上限」「攻击力加成」等长句
+    "体力": "HP",
+    "攻击力": "ATK",
+    "防御力": "DEF",
+    "治疗力": "治愈力",
+    # 属性加成的合成词——它们本身是独立完整字符串，所以要单独列。
+    # 关键：`体力上限加成`(18字节) 是比 `体力上限`(12字节) 更长的独立条目，
+    # 只写后者会漏掉它（游戏内「能力解放」页显示的正是这个长词）。
+    "体力上限加成": "HP上限加成",
+    "体力上限": "HP上限",
+    "攻击力加成": "ATK加成",
+    "治疗力加成": "治愈力加成",
 }
 
 BOND = "羁绊等级"
@@ -96,6 +117,7 @@ NAME_RULES = [
     ("芽瑠", "梅露"), ("琴里", "小鸟"), ("海香", "海夏"),
     ("康娜", "叶渚"), ("朱莉", "茱莉"), ("爱理", "爱莉"),
     ("风香", "枫香"), ("绮罗罗", "绮良良"),
+    # 名字改名已整体撤销，恢复官方原名「庚」（用户要求）。
 ]
 
 # 学年标签：等长替换，仅角色资料表
@@ -264,6 +286,39 @@ def verify(db_path: Path) -> None:
         raise RuntimeError(f"学年标签覆盖不足: {years}")
 
 
+def _scan_leftover(cur, word: str = "庚"):
+    """扫描全库仍含 word 的槽，返回 [(表, 键, 文本)]。用于收尾自检。"""
+    wb = word.encode()
+    out = []
+    tabs = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+    for t in tabs:
+        if t in SKIP_TABLES:
+            continue
+        cols = [c[1] for c in cur.execute('PRAGMA table_info("%s")' % t)]
+        if "Bytes" not in cols:
+            continue
+        pk = None
+        for c in cur.execute('PRAGMA table_info("%s")' % t):
+            if c[5]:
+                pk = c[1]
+                break
+        sel = ('"%s"' % pk) if pk else "rowid"
+        for key, blob in cur.execute('SELECT %s, Bytes FROM "%s"' % (sel, t)).fetchall():
+            if not isinstance(blob, (bytes, bytearray)):
+                continue
+            data = bytes(blob)
+            pos = 0
+            while True:
+                i = data.find(wb, pos)
+                if i < 0:
+                    break
+                slot = find_slot(data, i, len(wb))
+                if slot and word in slot[2]:
+                    out.append((t, key, slot[2]))
+                pos = i + len(wb)
+    return out
+
+
 def read_change_counter(path: Path) -> bytes:
     """SQLite 文件头 offset 98..99 的 file change counter。"""
     with path.open("rb") as fh:
@@ -303,20 +358,42 @@ def main() -> int:
     con.commit()
     print(f"[TEXT] 学年层      : {year_changed} 个角色")
 
+    # 名字改名必须放最后：它会改变行内字节布局（吃零填充 / 行末变长）。
+    # 放在其它层之后，前面的规则仍按官方原始布局匹配，不会互相干扰。
+    rows, cnt, left = rename_geng(cur)
+    con.commit()
+    print(
+        "[TEXT] 改名层      : %d 行（吃零填充 %d / 行末变长 %d / 缩小 %d）"
+        % (rows, cnt["A"], cnt["B"], cnt["S"])
+    )
+    eq = apply_equal_len(cur)
+    con.commit()
+    print(f"[TEXT] 等字节重写  : {eq} 处")
+
+    # 收尾自检：仍有「庚」说明规则没覆盖到，直接抛错，不推半成品
+    leftover = [s for _, _, s in _scan_leftover(cur)]
+    if leftover:
+        con.close()
+        raise RuntimeError("仍有「庚」未处理: %r" % leftover[:4])
+
     # 不做 VACUUM：VACUUM 会重排页布局，改变最终 MD5 和文件大小，
     # 导致同一份官方表每次构建产出不同的 Crc（客户端会误判为又更新了）。
     # 保持原页布局，让构建结果严格可复现。
     con.commit()
     con.close()
 
-    # SQLite 在文件头 offset 98..99 维护一个 2 字节的 file change counter，
-    # 每次提交都会 +1。它只影响「其他已打开的连接是否要重新读 schema」，
-    # 与数据内容完全无关，却会让同一份输入每次构建出不同的 MD5 —— 客户端
-    # 于是把每次 CI 构建都当成「官方又更新了」，白白重下 153 MB。
-    #
-    # 这里统一写死为 0：只要内容一致，Crc 就一致，构建严格可复现。
+    # SQLite 文件头里有一组「与内容无关、却随写入自增」的计数器：
+    #   offset 24..27 文件格式版本号
+    #   offset 92..95 version-valid-for
+    #   offset 96..99 SQLite version number（含 98..99 的 file change counter）
+    # 不固定它们，同一份数据每次构建都会产出不同 MD5，客户端误判为
+    # 「官方又更新了」，白白重下 153 MB。这里统一写 0：只要内容一致，
+    # Crc 就一致，构建严格可复现。
     # （客户端每次都从空白加载这个文件，不存在需要靠自增来失效缓存的连接。）
-    write_change_counter(target, b"\x00\x00")
+    for start, length in ((24, 4), (92, 4), (96, 4)):
+        with target.open("r+b") as fh:
+            fh.seek(start)
+            fh.write(b"\x00" * length)
 
     print("[TEXT] 校验…")
     verify(target)
