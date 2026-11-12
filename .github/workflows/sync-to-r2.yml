@@ -254,6 +254,11 @@ jobs:
       # 必须在 Fetch MediaManifest 之后：MediaManifest 不在
       # update_resources.py 的产出里，漏掉它媒体资源会大面积 404。
       # ======================================================
+      # 2026-11 迁移：旧站点 419a3c9c（账号 zoerliu@qq.com）被账号级额度冻结，
+      # 任何部署都返回 403 "Account credit usage exceeded"，因此切到新账号
+      # 241364768@qq.com 下的新站点 ba-uncensor-cn。
+      # 需要在仓库 Secrets 里把 NETLIFY_AUTH_TOKEN 换成新账号的 token
+      # （nfp_ 开头），NETLIFY_SITE_ID 可选（不配就用下面的默认值）。
       - name: Deploy to Netlify
         if: >-
           steps.version.outputs.changed == 'true' &&
@@ -268,7 +273,7 @@ jobs:
             exit 1
           fi
           # Site ID 不是机密，留一个默认值，这样只配 token 也能跑
-          site="${NETLIFY_SITE_ID:-419a3c9c-347c-4b08-941f-c166ed28f578}"
+          site="${NETLIFY_SITE_ID:-ec37c24d-90cb-4278-977b-cd8bc4baec9b}"
           npx --yes netlify-cli@17 deploy \
             --prod \
             --dir=modified \
