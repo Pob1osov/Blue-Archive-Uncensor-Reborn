@@ -574,7 +574,24 @@ def find_exclusion_bundles() -> dict[str, Path]:
 
 def copy_exclusion_bundles(
     exclusions: dict[str, Path],
+    catalog_entries: dict[str, dict],
 ) -> int:
+    """把 assetexclusions 复制进 modified/，**但必须先与官方 Catalog 核对**。
+
+    为什么必须校验
+    --------------
+    assetexclusions 的用途是「R2 上曾经传坏、需要一份已知正确的副本来修正」。
+    它默认这些本地文件是权威的。但官方一旦发布新资源版本，同名 Bundle 的
+    内容会变，本地旧副本就不再是「正确内容」，而是过期内容。
+
+    曾经因为没有校验：官方 2026-11-05 更新资源后，43 个 spine 立绘包的本地
+    旧副本（比官方大 2~7 倍）被无差别复制进 modified/ 并推上 R2，客户端拉到
+    这些包后 spine 立绘加载失败 —— 表现为**进游戏黑屏**。
+
+    修法：逐个比对官方 Catalog 里的 Size 与 Crc，只有完全一致才复制；
+    不一致说明本地副本已过期，直接跳过，让客户端回落到官方源。
+    这样既保留「修正坏对象」的能力，又不会把过期内容推上去。
+    """
 
     if not exclusions:
         return 0
@@ -590,7 +607,32 @@ def copy_exclusion_bundles(
         exist_ok=True,
     )
 
+    copied = 0
+    skipped = 0
+
     for name, source in exclusions.items():
+
+        entry = catalog_entries.get(name)
+
+        if entry is None:
+            print(f"[SKIP-EXCLUSION] {name} —— 官方 Catalog 中已无此 Bundle，跳过")
+            skipped += 1
+            continue
+
+        expected_size = int(entry["Size"])
+        expected_crc = str(entry.get("Crc", "")).lower()
+
+        actual_size = source.stat().st_size
+        actual_md5 = hashlib.md5(source.read_bytes()).hexdigest()
+
+        if actual_size != expected_size or (expected_crc and actual_md5 != expected_crc):
+            print(
+                f"[SKIP-EXCLUSION] {name} —— 本地副本已过期，跳过\n"
+                f"    官方: {expected_size} B / {expected_crc}\n"
+                f"    本地: {actual_size} B / {actual_md5}"
+            )
+            skipped += 1
+            continue
 
         target = destination_dir / name
 
@@ -598,7 +640,13 @@ def copy_exclusion_bundles(
 
         print(f"[COPY-EXCLUSION] {source} -> {target}")
 
-    return len(exclusions)
+        copied += 1
+
+    if skipped:
+        print(f"[COPY-EXCLUSION] 跳过 {skipped} 个过期副本（客户端将回落到官方源）")
+
+    return copied
+
 
 # ============================================================
 # 主流程
@@ -903,7 +951,10 @@ def main() -> int:
         copy_modified_bundles()
     )
 
-    exclusion_count = copy_exclusion_bundles(exclusions)
+    exclusion_count = copy_exclusion_bundles(
+        exclusions,
+        build_bundle_map(official_catalog),
+    )
 
     print(
         f"实际修改 Bundle: "
