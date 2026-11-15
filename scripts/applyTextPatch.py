@@ -97,6 +97,27 @@ COMBAT_FIX = [
 # 必须等长 —— 这些字符串嵌在 MemoryPack/flatbuffer 里，改长度会让后续字段
 # 的偏移错位，轻则名字显示不全，重则整个表解析失败。
 NAME_RULES = [
+    # 「（武装）」-> 「（临战）」
+    #
+    # 放在最前面，因为它作用于「角色名里的形态后缀」，与后面的具体人名无关。
+    #
+    # 为什么用「全库等长字节替换」而不是 TEXT_RULES
+    # ------------------------------------------------
+    # 这是一个纯字节替换：两者都是 12 字节（全角括号 3 字节 + 两个汉字 6 字节
+    # + 全角括号 3 字节），偏移不变，flatbuffer / MemoryPack 结构完全不受影响。
+    #
+    # 为什么它能自动覆盖未来新角色
+    # ----------------------------
+    # 规则只匹配「（武装）」这个后缀本身，不列举角色名。
+    # 将来上线「爱丽丝（武装）」，其名称在库里同样是「爱丽丝（武装）」，
+    # 这个字节模式会被直接命中 -> 显示为「爱丽丝（临战）」，
+    # 无需为新角色追加任何规则。
+    #
+    # 为什么不会误伤正文
+    # ------------------
+    # 匹配的是带全角括号的完整后缀「（武装）」，
+    # 剧情里单独出现的「武装」二字（如「武装起来」）不会被命中。
+    ("（武装）", "（临战）"),
     ("陆八魔爱露", "陆八魔阿露"),
     ("美甘妮露", "美甘尼禄"),
     ("水羽三森", "水羽弥守"),
@@ -124,6 +145,10 @@ NAME_RULES = [
 YEAR_RULES = [("第1年", "1年生"), ("第2年", "2年生"), ("第3年", "3年生")]
 
 # 执行完必须为 0 的旧词；非 0 说明规则漏了或顺序错了
+#
+# 注意：这里只校验 LocalizeDBSchema（文本层）。
+# 「（武装）」这类改动走的是 apply_name_layer 的全库字节替换，
+# 由 verify_form_suffix() 单独校验，不要加到这里——否则会误报。
 MUST_BE_EMPTY = [
     "必杀技能", "基础技能", "被动技能", "辅助技能",
     "桃信", "桃桃朋友", "概率提升", "快速战斗", "地下市场",
@@ -281,9 +306,29 @@ def verify(db_path: Path) -> None:
         )
         for w in ("1年生", "2年生", "3年生")
     }
+
+    # 形态后缀专项校验：全库（含名字层）不应再残留「（武装）」
+    suffix_left = 0
+    tabs = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+    needle = "（武装）".encode("utf-8")
+    for t in tabs:
+        cols = [c[1] for c in con.execute('PRAGMA table_info("%s")' % t)]
+        if "Bytes" not in cols:
+            continue
+        for (b,) in con.execute('SELECT Bytes FROM "%s"' % t):
+            if isinstance(b, (bytes, bytearray)) and needle in bytes(b):
+                suffix_left += 1
+
     con.close()
+
     if sum(years.values()) < 200:
         raise RuntimeError(f"学年标签覆盖不足: {years}")
+
+    if suffix_left:
+        raise RuntimeError(
+            f"形态后缀未清理干净：仍有 {suffix_left} 个 blob 含「（武装）」。"
+            f"检查 NAME_RULES 中是否漏掉了非全角写法（如半角(武装)）。"
+        )
 
 
 def _scan_leftover(cur, word: str = "庚"):
