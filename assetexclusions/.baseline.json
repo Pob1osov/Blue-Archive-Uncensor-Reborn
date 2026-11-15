@@ -1,6 +1,6 @@
 {
   "ui-_mxload-prefabs-2026-06-04_assets_all_2022518488.bundle": {
     "based_on": "43a9b02c5660",
-    "note": "MomoTalk 两处标题(Popup 主界面 / Intro 开屏动画) mWidth 314->448 (ratio 4.9->7.0)；主界面问号 Btn_Information x -888->-557.4，右移留出 12px 空隙。贴图按拉伸 1.75 倍反向补偿，画成 4:1。基于官方 202611051844。"
+    "note": "按上游标准改法：问号 Btn_Information x -888 -> -708（右移给英文标题腾空间），开屏动画 Momotalk pos.x 40 -> 0（居中）。贴图保持官方 256x64 不自行绘制。基于官方 202611051844。"
   }
 }
