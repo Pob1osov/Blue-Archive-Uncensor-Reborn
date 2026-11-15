@@ -572,25 +572,64 @@ def find_exclusion_bundles() -> dict[str, Path]:
     return result
 
 
+def load_exclusion_baseline() -> dict[str, dict]:
+    """读取 assetexclusions/.baseline.json。
+
+    结构示例：
+        {
+          "ui-_mxload-prefabs-2026-06-04_assets_all_2022518488.bundle": {
+            "based_on": "14a7964e7a50",
+            "note": "MomoTalk 标题宽度 314->448，问号右移"
+          }
+        }
+
+    based_on 记录「改动基于官方哪个版本的 Crc 前 12 位」，
+    官方换版时能提示改动可能需要重新适配。
+    """
+
+    path = EXCLUSIONS_DIR / ".baseline.json"
+
+    if not path.is_file():
+        return {}
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"[WARN] 解析 .baseline.json 失败，按空处理: {e}")
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    return {k: v for k, v in data.items() if isinstance(v, dict)}
+
+
 def copy_exclusion_bundles(
     exclusions: dict[str, Path],
     catalog_entries: dict[str, dict],
 ) -> int:
-    """把 assetexclusions 复制进 modified/，**但必须先与官方 Catalog 核对**。
+    """把 assetexclusions 复制进 modified/，并区分「过期副本」与「有意修改」。
 
-    为什么必须校验
+    为什么需要校验
     --------------
-    assetexclusions 的用途是「R2 上曾经传坏、需要一份已知正确的副本来修正」。
-    它默认这些本地文件是权威的。但官方一旦发布新资源版本，同名 Bundle 的
-    内容会变，本地旧副本就不再是「正确内容」，而是过期内容。
+    assetexclusions 有两个用途，必须分开对待：
 
-    曾经因为没有校验：官方 2026-11-05 更新资源后，43 个 spine 立绘包的本地
-    旧副本（比官方大 2~7 倍）被无差别复制进 modified/ 并推上 R2，客户端拉到
-    这些包后 spine 立绘加载失败 —— 表现为**进游戏黑屏**。
+    (A) 修坏对象：R2 上某个 bundle 传坏了，这里放一份已知正确的副本。
+        这种情况本地文件应与官方 Catalog 的 Size/Crc **完全一致**。
 
-    修法：逐个比对官方 Catalog 里的 Size 与 Crc，只有完全一致才复制；
-    不一致说明本地副本已过期，直接跳过，让客户端回落到官方源。
-    这样既保留「修正坏对象」的能力，又不会把过期内容推上去。
+    (B) 有意修改：我们自己改过这个 bundle（去和谐贴图、改 UI 布局等）。
+        这种情况本地文件与官方**必然不同**，而且是我们要的效果。
+
+    历史上只有 (A) 的校验、没有 (B) 的概念，出过一次事故：
+    官方 2026-11-05 更新资源后，43 个 spine 立绘包的本地旧副本
+    （比官方大 2~7 倍）被无差别复制进 modified/ 并推上 R2，
+    客户端拉到后 spine 立绘加载失败 —— 表现为**进游戏黑屏**。
+
+    如何区分
+    --------
+    在 assetexclusions/.baseline.json 里记录「每个包是基于哪个官方版本改的」。
+    文件里登记过的，视为有意修改，放行；
+    没登记的，必须与官方一致，否则判定为过期副本，跳过。
     """
 
     if not exclusions:
@@ -607,11 +646,52 @@ def copy_exclusion_bundles(
         exist_ok=True,
     )
 
+    baseline = load_exclusion_baseline()
+
     copied = 0
     skipped = 0
 
     for name, source in exclusions.items():
 
+        target = destination_dir / name
+
+        actual_size = source.stat().st_size
+        actual_md5 = hashlib.md5(source.read_bytes()).hexdigest()
+
+        # ---- 情况 B：已在 baseline 登记为「有意修改」，直接放行 ----
+        if name in baseline:
+
+            entry = catalog_entries.get(name)
+
+            if entry is None:
+                print(
+                    f"[SKIP-EXCLUSION] {name} —— 官方 Catalog 中已无此 Bundle，"
+                    f"无法确认改动是否仍有效，跳过"
+                )
+                skipped += 1
+                continue
+
+            base_ver = baseline[name].get("based_on", "")
+            cur_ver = str(entry.get("Crc", ""))[:12]
+
+            if base_ver and cur_ver and base_ver != cur_ver:
+                # 官方换过这个包，我们的改动可能已失效
+                print(
+                    f"[WARN-EXCLUSION] {name} —— 官方已更新此 Bundle\n"
+                    f"    baseline 基于: {base_ver}\n"
+                    f"    当前官方    : {cur_ver}\n"
+                    f"    仍按有意修改放行（如需重新适配请重新打包）"
+                )
+
+            shutil.copy2(source, target)
+            print(
+                f"[COPY-EXCLUSION] {name} —— 有意修改"
+                f"（{actual_size} B / {actual_md5[:12]}）"
+            )
+            copied += 1
+            continue
+
+        # ---- 情况 A：未登记，必须与官方一致 ----
         entry = catalog_entries.get(name)
 
         if entry is None:
@@ -622,9 +702,6 @@ def copy_exclusion_bundles(
         expected_size = int(entry["Size"])
         expected_crc = str(entry.get("Crc", "")).lower()
 
-        actual_size = source.stat().st_size
-        actual_md5 = hashlib.md5(source.read_bytes()).hexdigest()
-
         if actual_size != expected_size or (expected_crc and actual_md5 != expected_crc):
             print(
                 f"[SKIP-EXCLUSION] {name} —— 本地副本已过期，跳过\n"
@@ -633,8 +710,6 @@ def copy_exclusion_bundles(
             )
             skipped += 1
             continue
-
-        target = destination_dir / name
 
         shutil.copy2(source, target)
 
