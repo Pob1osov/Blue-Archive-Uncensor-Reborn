@@ -257,8 +257,40 @@ def _fb_s32(d, o):
     return struct.unpack("<i", d[o:o + 4])[0]
 
 
+def _fb_try_str(d, target):
+    """在 target 附近解析字符串，返回 (内容起始, 长度) 或 None。
+
+    实测本项目 flatbuffer 的语义是：
+        target = 字符串【内容起点】，长度前缀在 target-4
+
+    但为稳妥也兼容「长度前缀在 target」的布局。
+    只接受可打印文本，避免把二进制数组误判成字符串。
+    """
+
+    def _ok(pos, ln):
+        try:
+            txt = d[pos:pos + ln].decode("utf-8")
+        except Exception:
+            return False
+        for ch in txt:
+            o = ord(ch)
+            if o < 0x20 and ch not in "\n\t":
+                return False
+        return True
+
+    if target >= 4:
+        ln = _fb_u32(d, target - 4)
+        if 1 <= ln <= 1024 and target + ln <= len(d) and _ok(target, ln):
+            return target, ln
+    if target + 4 <= len(d):
+        ln = _fb_u32(d, target)
+        if 1 <= ln <= 1024 and target + 4 + ln <= len(d) and _ok(target + 4, ln):
+            return target + 4, ln
+    return None
+
+
 def _fb_string_fields(d):
-    """遍历根表引用的字符串字段，产出 (字段值位置, 字符串内容位置, 内容长度)。"""
+    """遍历根表引用的字符串字段，产出 (字段值位置, 内容起始, 长度)。"""
     import struct
     if len(d) < 8:
         return
@@ -281,19 +313,22 @@ def _fb_string_fields(d):
             fpos = root + voff
             if fpos + 4 > len(d):
                 continue
-            fval = _fb_u32(d, fpos)
-            tgt = fpos + fval
-            if not (0 < tgt < len(d) - 4):
+            target = fpos + _fb_u32(d, fpos)
+            if not (4 <= target < len(d)):
                 continue
-            slen = _fb_u32(d, tgt)
-            if 4 <= slen <= len(d) - tgt - 4:
-                yield fpos, tgt, slen
+            r = _fb_try_str(d, target)
+            if r is not None:
+                yield fpos, r[0], r[1]
     except Exception:
         return
 
 
 def patch_flatbuffer(blob, rules):
-    """对单个 flatbuffer blob 应用变长替换，返回 (新blob, 替换数)。"""
+    """对单个 flatbuffer blob 应用变长替换，返回 (新blob, 替换数)。
+
+    策略：新串追加到 blob 末尾，只改字段偏移指向新内容起点。
+    所有已有偏移保持不动，结构必然完整。
+    """
     import struct
     d = bytearray(blob)
     total = 0
@@ -303,9 +338,9 @@ def patch_flatbuffer(blob, rules):
         return bytes(blob), 0
 
     appended = bytearray()
-    for fpos, tgt, slen in fields:
+    for fpos, sstart, slen in fields:
         try:
-            txt = bytes(d[tgt + 4: tgt + 4 + slen]).decode("utf-8")
+            txt = bytes(d[sstart:sstart + slen]).decode("utf-8")
         except Exception:
             continue
 
@@ -323,35 +358,12 @@ def patch_flatbuffer(blob, rules):
         entry += b"\x00" * pad
         appended += entry
 
-        struct.pack_into("<I", d, fpos, (base - fpos) & 0xFFFFFFFF)
+        new_content = base + 4
+        struct.pack_into("<I", d, fpos, (new_content - fpos) & 0xFFFFFFFF)
         total += 1
 
     if appended:
         d += appended
-
-    # 第二遍：处理末尾的长度前缀字符串
-    for old, new in rules:
-        ob, nb = old.encode("utf-8"), new.encode("utf-8")
-        if ob == nb:
-            continue
-        pos = 0
-        while True:
-            i = bytes(d).find(ob, pos)
-            if i < 0:
-                break
-            pos = i + len(ob)
-            if i < 4:
-                continue
-            if struct.unpack("<I", bytes(d[i - 4:i]))[0] != len(ob):
-                continue
-            tail = bytes(d[i + len(ob):])
-            if len(tail) > 4 or any(x != 0 for x in tail):
-                continue
-            struct.pack_into("<I", d, i - 4, len(nb))
-            d[i:i + len(ob)] = nb
-            if len(d) - (i + len(nb)) < 1:
-                d += b"\x00"
-            total += 1
 
     return bytes(d), total
 
@@ -374,11 +386,12 @@ def apply_flatbuffer_layer(cur, rules):
             rows = cur.execute('SELECT %s, Bytes FROM "%s"' % (sel, table)).fetchall()
         except Exception:
             continue
+        needles = [old.encode("utf-8") for old, _ in rules]
         for key, blob in rows:
             if not isinstance(blob, (bytes, bytearray)):
                 continue
             data = bytes(blob)
-            if not any(old.encode("utf-8") in data for old, _ in rules):
+            if not any(n in data for n in needles):
                 continue
             new_blob, n = patch_flatbuffer(data, rules)
             if n:
@@ -388,10 +401,6 @@ def apply_flatbuffer_layer(cur, rules):
                 changed += 1
     return changed
 
-
-# ============================================================
-# 主流程
-# ============================================================
 
 def apply_text_layer(cur) -> int:
     changed = 0
