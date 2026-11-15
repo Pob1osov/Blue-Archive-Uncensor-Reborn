@@ -604,6 +604,127 @@ def load_exclusion_baseline() -> dict[str, dict]:
     return {k: v for k, v in data.items() if isinstance(v, dict)}
 
 
+def rebake_replacement_into_exclusions(
+    exclusions: dict[str, Path],
+    catalog_entries: dict[str, dict],
+) -> int:
+    """把 replacement/ 里的 PNG 烘焙进已复制到 modified/ 的 exclusion bundle。
+
+    背景
+    ----
+    replaceTexture2D.py 把 assetexclusions/ 排除在输入之外，
+    而 copy_exclusion_bundles 在烘焙之后整包覆盖 modified/，
+    导致 exclusions 包里与 replacement 同名的贴图会把烘焙结果盖回去。
+
+    典型场景：exclusions 里的 imagefont 包（来自第三方）中 ImgFont_Momotalk
+    是官方的中文版，而 replacement/ 里有我们的英文版 —— 直接推上去就是中文。
+
+    做法
+    ----
+    对每个 exclusion bundle：
+      1. 在 replacement/ 下找同名目录（目录名 = bundle 文件名去掉后缀）
+      2. 没有该目录就跳过（这个包不带贴图替换）
+      3. 有则用 UnityPy 就地替换对应 Texture2D 并回写 modified/ 里的那份
+
+    这样「第三方的整包修改」与「我们自己的贴图替换」就能叠加生效。
+    """
+
+    import UnityPy  # 延迟导入：没有该依赖时不影响其它流程
+
+    destination_dir = MODIFIED_DIR / "AssetBundles" / "Android"
+
+    replacement_dir = ROOT_DIR / "replacement"
+
+    if not replacement_dir.is_dir():
+        return 0
+
+    # 建立 replacement 子目录索引：规范化后的 bundle 名 -> 目录
+    rep_index: dict[str, Path] = {}
+    for d in replacement_dir.iterdir():
+        if d.is_dir():
+            rep_index[d.name.strip().lower()] = d
+
+    rebaked = 0
+
+    for name in exclusions:
+
+        target = destination_dir / name
+        if not target.is_file():
+            continue
+
+        # 找 replacement 里对应的目录
+        #
+        # bundle 名形如：
+        #   prologgroup-...-imagefont-_mxprolog-2026-06-04_assets_all_2403408782.bundle
+        # replacement 目录是其前缀：
+        #   prologgroup-...-imagefont-_mxprolog
+        #
+        # 因此按「目录名是 bundle 名的前缀」匹配，取最长的那个，
+        # 避免同名包之间误配。
+        stem = name
+        if stem.endswith(".bundle"):
+            stem = stem[: -len(".bundle")]
+        stem_low = stem.strip().lower()
+
+        rep_dir = None
+        best_len = 0
+        for dir_key, dir_path in rep_index.items():
+            if stem_low.startswith(dir_key) and len(dir_key) > best_len:
+                rep_dir = dir_path
+                best_len = len(dir_key)
+
+        if rep_dir is None:
+            continue
+
+        pngs = {p.stem: p for p in rep_dir.glob("*.png")}
+        if not pngs:
+            continue
+
+        try:
+            env = UnityPy.load(str(target))
+            hit = 0
+            for obj in env.objects:
+                if obj.type.name != "Texture2D":
+                    continue
+                try:
+                    data = obj.read()
+                    tex_name = data.m_Name
+                except Exception:
+                    continue
+                if tex_name not in pngs:
+                    continue
+                from PIL import Image as _Image
+                data.image = _Image.open(pngs[tex_name]).convert("RGBA")
+                data.save()
+                hit += 1
+
+            if hit:
+                tmp_dir = MODIFIED_DIR / "_rebake_tmp"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                import os
+                cwd = os.getcwd()
+                os.chdir(str(MODIFIED_DIR))
+                try:
+                    env.save(out_path=str(tmp_dir))
+                finally:
+                    os.chdir(cwd)
+
+                produced = tmp_dir / name
+                if produced.is_file():
+                    shutil.move(str(produced), str(target))
+                    print(f"[REBAKE-EXCLUSION] {name} —— 叠加 {hit} 张替换图")
+                    rebaked += 1
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        except Exception as exc:
+            print(f"[WARN-REBAKE] {name} 叠加失败，保持原样: {exc}")
+
+    if rebaked:
+        print(f"[REBAKE-EXCLUSION] 共 {rebaked} 个 exclusion 包叠加了替换图")
+
+    return rebaked
+
+
 def copy_exclusion_bundles(
     exclusions: dict[str, Path],
     catalog_entries: dict[str, dict],
@@ -1027,6 +1148,33 @@ def main() -> int:
     )
 
     exclusion_count = copy_exclusion_bundles(
+        exclusions,
+        build_bundle_map(official_catalog),
+    )
+
+    # ========================================================
+    # 5.5 把 replacement/ 的贴图再烘焙进 exclusions 里的包
+    # ========================================================
+    #
+    # 为什么需要这一步
+    # ----------------
+    # replaceTexture2D.py 明确把 assetexclusions/ 排除在输入之外
+    # （见它 main() 里的 excluded_dirs），因此 exclusions 里的 bundle
+    # 从不参与烘焙；而 copy_exclusion_bundles 是在烘焙**之后**整包覆盖，
+    # 于是：
+    #
+    #   replacement/ 有英文 MomoTalk.png  -> 烘焙进 modified/ 的包
+    #   exclusions/  有中文 MomoTalk 的包 -> 整包覆盖回去
+    #   结果：界面变回中文，烘焙白做
+    #
+    # 实测过一次：UP 主提供的 imagefont bundle 里 ImgFont_Momotalk 与官方
+    # 完全相同（中文「桃信」），推上去后 MomoTalk 界面回退成中文。
+    #
+    # 修法：对每个已复制的 exclusion bundle，如果 replacement/ 里存在
+    # 同名 bundle 目录下的 PNG，就地烘焙一次，让两者叠加而不是互相覆盖。
+    # ========================================================
+
+    rebaked = rebake_replacement_into_exclusions(
         exclusions,
         build_bundle_map(official_catalog),
     )
