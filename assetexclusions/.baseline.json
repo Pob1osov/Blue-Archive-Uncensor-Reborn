@@ -1,0 +1,6 @@
+{
+  "ui-_mxload-prefabs-2026-06-04_assets_all_2022518488.bundle": {
+    "based_on": "43a9b02c5660",
+    "note": "MomoTalk 标题宽度 314->448 (aspectRatio 4.9->7.0)，问号 Btn_Information x -888->-557.4，给英文标题腾出空间。基于官方 ResourceVersion 202611051844 打包。"
+  }
+}
