@@ -40,27 +40,86 @@ from renameGeng import (  # noqa: E402
 # 文本层：按长度前缀重写，允许不等长。
 # 顺序敏感 —— 「好感等级」必须先于「等级」规则生效，否则会被拆成「好感Lv.」。
 TEXT_RULES = [
-    # 2026-11-17 修正：上游的「还原」实际是**替换**而不是删词。
-    # 实测上游旧库已完成：
-    #   等级→Lv. 评级→RANK 桃信→MomoTalk 桃桃朋友→MomoFriends
-    #   地下市场→黑市 快速战斗→扫荡 成员→学员 最小值/最大值→MIN/MAX
-    # 这些全部交给「整行还原」处理，本层不再重复。
-    # 本层只保留「短改长」里必须走文本层的个别词。
-    # 「庚」在 LocalizeDBSchema 里是独立布局，变长必须按长度重建；
-    # flatbuffer 槽由 FLATBUFFER_FLEX_RULES 负责。
+    ("好感等级", "\x01BOND\x01"),   # 占位，最后还原为「羁绊等级」
+    ("桃桃朋友", "MomoFriends"),
+    ("桃信", "MomoTalk"),
+    ("成员", "学员"),
+    ("概率提升", "Pick Up"),
+    ("最大值", "MAX"),
+    ("最小值", "MIN"),
+    ("评级", "Rank."),
+    ("地下市场", "黑市"),
+    ("快速战斗", "扫荡"),
+    ("必杀技能", "EX技能"),
+    ("基础技能", "基本技能"),
+    ("被动技能", "强化技能"),
+    ("辅助技能", "子技能"),
+    ("技能升级", "技能成长"),
+    # 角色名「庚」->「鹿江」。LocalizeDBSchema 是独立布局（40 字节头 +
+    # 长度前缀 + 4 字节对齐填充），变长必须走这里按长度重建。
+    # 其它表（flatbuffer 槽）交给 renameGeng，两者范围互不重叠。
     ("庚", "鹿江"),
 ]
+
+# 仅当整条字符串完全等于左侧时才替换。
+# 这条规则很关键：「等级」在表里是 14 个界面共用的标签，但「学员等级」
+# 「必杀技能等级」「技能等级」是各自独立的完整字符串，全局替换会把它们
+# 一并改成「学员Lv.」，那是错的。所以只认整条相等。
 EXACT_RULES = {
-    # 2026-11-16 决定：界面文本只保留这两条，其余照搬官方。
-    "自动": "AUTO",
-    "跳过": "SKIP",
+    "公告": "Notice",
+    "未命中": "MISS",
+    "等级": "Lv.",
+    # 抽卡页的「首次」标签 -> 「初回」
+    #
+    # 为什么用 EXACT_RULES 而不是 TEXT_RULES
+    # --------------------------------------
+    # 「首次」在库里还出现在「首次奖励」「首次进入游戏」这类新手引导/活动文案里。
+    # TEXT_RULES 是子串替换，会把它们一并改成「初回奖励」，那是错的。
+    # EXACT_RULES 只在整条字符串完全等于「首次」时才替换，因此只影响
+    # 抽卡页那两个独立的「首次」标签（Key 1007001787 / 2769709569）。
+    #
+    # 字节长度：「首次」与「初回」都是 6 字节，等长替换不影响结构。
+    "首次": "初回",
+    # 属性面板：整条相等才换，避免污染「体力上限」「攻击力加成」等长句
+    "体力": "HP",
+    "攻击力": "ATK",
+    "防御力": "DEF",
+    "治疗力": "治愈力",
+    # 属性加成的合成词——它们本身是独立完整字符串，所以要单独列。
+    # 关键：`体力上限加成`(18字节) 是比 `体力上限`(12字节) 更长的独立条目，
+    # 只写后者会漏掉它（游戏内「能力解放」页显示的正是这个长词）。
+    "体力上限加成": "HP上限加成",
+    "体力上限": "HP上限",
+    "攻击力加成": "ATK加成",
+    "治疗力加成": "治愈力加成",
+    # 顶部导航 / 活动页的「活动」标签 -> 「EVENT」
+    #
+    # 为什么必须走 EXACT_RULES
+    # ------------------------
+    # 「活动」在库里作为子串出现 589 处（「活动期间」「暂无活动」
+    # 「完成所有活动每日任务」…），用 TEXT_RULES 会把长句一起改坏。
+    # 整条字符串恰好等于「活动」的只有 10 处，全部是独立标签。
+    "活动": "EVENT",
+    # 公告/邮件等角标「新」-> 「New」
+    #
+    # 同样不能用子串：「新」在库里作子串出现 407 处
+    # （「重新」「新手」「更新」…）。整条等于「新」的只有 2 处，是角标。
+    "新": "New",
 }
+
 BOND = "羁绊等级"
-LEVEL_WORD = None   # 「等级 -> Lv.」已停用
-LEVEL_REPLACEMENT = None
-LEVEL_PROTECT = ()
-COMBAT_RULES = []
-COMBAT_FIX = []
+
+# 战斗属性：只在短标签（len<=12）里替换，避免污染长句里的「命中判定」等
+COMBAT_RULES = [("暴击", "CRIT"), ("闪避", "EVA"), ("命中", "HIT")]
+COMBAT_FIX = [
+    ("CRIT率", "CRIT"), ("CRIT值", "CRIT"),
+    ("EVA率", "EVA"), ("EVA值", "EVA"),
+    ("HIT率", "HIT"), ("HIT值", "HIT"),
+]
+
+# 名字层：全库等长字节替换。
+# 必须等长 —— 这些字符串嵌在 MemoryPack/flatbuffer 里，改长度会让后续字段
+# 的偏移错位，轻则名字显示不全，重则整个表解析失败。
 NAME_RULES = [
     # 「（武装）」-> 「（临战）」
     #
@@ -113,7 +172,19 @@ NAME_RULES = [
 ]
 
 # 学年标签：等长替换，仅角色资料表
-YEAR_RULES = []
+YEAR_RULES = [("第1年", "1年生"), ("第2年", "2年生"), ("第3年", "3年生")]
+
+
+# ============================================================
+# flatbuffer 变长替换规则
+# ============================================================
+#
+# 这些词长度会变（提翡瑞 9->12、庚 3->6），不能做全库字节替换，
+# 会在 apply_flatbuffer_layer 里按两种情况分别处理：
+#   1) 字符串被字段偏移引用 -> 追加到 blob 末尾并改偏移
+#   2) 字符串贴在 blob 末尾且带长度前缀 -> 原地改长度
+# 两者都不移动已有数据的偏移，因此不会破坏 flatbuffer 结构。
+
 FLATBUFFER_FLEX_RULES = [
     # 2026-11-16 重新启用。旧实现漏写字符串终止符（4+len(payload) 恰为 4 的
     # 倍数时 pad 算出 0），163 个追加串里有 44 个没有 0x00 结尾，正是
@@ -129,11 +200,21 @@ FLATBUFFER_FLEX_RULES = [
 # 「（武装）」这类改动走的是 apply_name_layer 的全库字节替换，
 # 由 verify_form_suffix() 单独校验，不要加到这里——否则会误报。
 MUST_BE_EMPTY = [
-    # 角色名层执行后必须为 0 的旧名。
-    # 「成员」「等级」等已不再替换，若列在这里会误报。
+    "必杀技能", "基础技能", "被动技能", "辅助技能",
+    "桃信", "桃桃朋友", "概率提升", "快速战斗", "地下市场",
     "妮露", "爱露", "风香", "苍森美祢", "绮罗罗",
 ]
-MUST_KEEP = []
+
+# 绝不能被「等级 -> Lv.」误伤的复合词。
+# 注意「必杀技能等级」不在此列：它会被「必杀技能 -> EX技能」正确改写成
+# 「EX技能等级」，那是期望行为，不是误伤。
+MUST_KEEP = ["学员等级", "技能等级"]
+
+
+# ============================================================
+# blob 处理
+# ============================================================
+
 def pad_for(n: int) -> int:
     """LocalizeDBSchema 的填充规则：总是补到 4 字节，整除时也补 4。"""
     return 4 - (n % 4) if n % 4 else 4
@@ -260,26 +341,22 @@ def _fb_string_fields(d):
 
 
 def _fb_all_string_refs(d):
-    """扫描整个 blob 的所有 4 字节对齐位置，找出指向合法 flatbuffer 字符串的
-    uoffset 字段，产出 (字段值位置, 内容起始, 长度)。
+    """扫描整个 blob，找出所有指向合法 flatbuffer 字符串的 uoffset 字段。
 
     为什么需要它
     ------------
     _fb_string_fields 只走「根表」的直接字段。像 LocalizeEtc / ScenarioScript
     这类把文本放在嵌套表（vector of tables、子表字段）里的行，根表扫不到任何
-    字符串，于是匹配不到要替换的词——这正是「庚 / 提翡瑞」残留的真因。
+    字符串，于是「庚 / 提翡瑞」在那些行里替换不到。
 
     flatbuffers 里 uoffset 一律向前指向对象起点，字符串对象形如
-    [4B 长度][UTF-8 正文][0x00]。据此全量扫描即可覆盖任意嵌套层级。
-
-    误判防护：只认「能完整解出合法 UTF-8、正文不含 NUL、长度合理」的目标，
-    且调用方只在正文确实命中替换词时才改写，因此不会动到二进制数据。
+    [4B 长度][UTF-8 正文][0x00]，据此全量扫描即可覆盖任意嵌套层级。
     """
     import struct
     n = len(d)
     seen = set()
     for p in range(0, n - 4, 4):
-        u = struct.unpack_from("<I", d, p)[0]
+        u = struct.unpack_from('<I', d, p)[0]
         if u < 8 or u % 4:
             continue
         t = p + u
@@ -360,7 +437,6 @@ def patch_flatbuffer(blob, rules):
     total = 0
 
     fields = list(_fb_string_fields(bytes(d)))
-    # 根表扫不到时，退化为全 blob 的 uoffset 扫描（覆盖嵌套表 / vector of tables）。
     seen_f = set(fields)
     for f in _fb_all_string_refs(bytes(d)):
         if f not in seen_f:
@@ -465,12 +541,6 @@ def apply_text_layer(cur) -> int:
         if original in EXACT_RULES:
             value = EXACT_RULES[original]
         value = value.replace("\x01BOND\x01", BOND)
-        # 「等级」->「Lv.」，但整条跳过专有名词（羁绊等级 / 据点等级 …）。
-        # 放在最后，让「好感等级 -> 羁绊等级」先定型，才不会被拆开误伤。
-        # 「等级 -> Lv.」已按决定停用（LEVEL_WORD = None）。
-        if LEVEL_WORD and LEVEL_WORD in value:
-            if not any(p in value for p in LEVEL_PROTECT):
-                value = value.replace(LEVEL_WORD, LEVEL_REPLACEMENT)
         if value != original:
             cur.execute(
                 "UPDATE LocalizeDBSchema SET Bytes=? WHERE Key=?",
@@ -576,9 +646,8 @@ def verify(db_path: Path) -> None:
 
     con.close()
 
-    # YEAR_RULES 已停用，不再替换「第N年」，因此只提示不中断。
     if sum(years.values()) < 200:
-        print(f"[TEXT] 学年标签（YEAR_RULES 已停用）: {years}")
+        raise RuntimeError(f"学年标签覆盖不足: {years}")
 
     if suffix_left:
         raise RuntimeError(
