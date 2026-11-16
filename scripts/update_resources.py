@@ -1192,54 +1192,64 @@ def main() -> int:
     )
 
     # ========================================================
-    # 5.1 复制 Unity Addressables 目录文件到部署根目录
+    # 5.1 部署 Unity Addressables 目录文件
     # ========================================================
     #
-    # 客户端启动时卡在「Initialize Catalog」就是因为缺这两个文件：
-    #     catalog_Remote.json    Unity Addressables 的目录（约 77 MB）
-    #     catalog_Remote.hash    它的校验值
+    # 客户端启动时卡在「Initialize Catalog」，实测 CF 日志确认它请求的是：
+    #     {ResUrls}/AssetBundles/Catalog/<ResourceVersion>/Android/catalog_Android.zip
+    #     {ResUrls}/AssetBundles/Catalog/<ResourceVersion>/Android/catalog_Android.hash
     #
-    # 请求路径是 {ResUrls}/catalog_Remote.json，也就是站点根目录，
-    # 不是 AssetBundles/ 下面。之前 CI 从不产出它们，
-    # 所以换源后客户端一直拿不到，卡死在初始化。
+    # 官方 CDN 上 catalog_Android.json 是 404，只有 .zip（11.7 MB，内含
+    # catalog_Remote.json 77 MB）和 .hash（32 字节），所以必须按同样格式提供。
     #
-    # 仓库根目录放一份，这里复制到 modified/ 根目录即可。
+    # 之前的教训：往根目录放 catalog_Remote.json 没用，因为客户端请求的
+    # 路径带版本号、且要的是 zip。另外那份 json 必须是**官方当前版本**，
+    # 旧版本哪怕只差 6 字节也会被拒绝。
+    #
+    # 仓库里存 gz 版（GitHub 单文件限 25MB），这里还原成 zip/hash 放对位置。
     # ========================================================
+
+    _catalog_dir = (
+        MODIFIED_DIR
+        / "AssetBundles"
+        / "Catalog"
+        / official_resource_version
+        / "Android"
+    )
+    _catalog_dir.mkdir(parents=True, exist_ok=True)
 
     _copied_catalog = 0
-    MODIFIED_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 情况 A：仓库里是压缩版 catalog_Remote.json.gz（GitHub 单文件限 25MB，
-    # 77MB 的原始 json 传不上去，所以压缩后入库，这里解压还原）
-    _gz = ROOT_DIR / "catalog_Remote.json.gz"
-    _plain = ROOT_DIR / "catalog_Remote.json"
-
-    if _gz.is_file():
-        import gzip
-        _dst = MODIFIED_DIR / "catalog_Remote.json"
-        with gzip.open(_gz, "rb") as _f:
-            _data = _f.read()
-        _dst.write_bytes(_data)
+    # 1) catalog_Android.zip（客户端直接请求这个）
+    _z = ROOT_DIR / "catalog_Android.zip"
+    if _z.is_file():
+        shutil.copy2(_z, _catalog_dir / "catalog_Android.zip")
         print(
-            f"[CATALOG-REMOTE] 解压 {_gz.name} -> modified/catalog_Remote.json"
-            f"  ({len(_data)} B)"
+            f"[CATALOG] catalog_Android.zip -> {_catalog_dir.relative_to(MODIFIED_DIR)}"
+            f"  ({_z.stat().st_size} B)"
         )
         _copied_catalog += 1
-    elif _plain.is_file():
-        _dst = MODIFIED_DIR / "catalog_Remote.json"
-        shutil.copy2(_plain, _dst)
-        print(f"[CATALOG-REMOTE] 复制 {_plain.name} -> modified/  ({_dst.stat().st_size} B)")
-        _copied_catalog += 1
 
-    # hash 文件（小，直接复制）
-    _h = ROOT_DIR / "catalog_Remote.hash"
-    if _h.is_file():
-        shutil.copy2(_h, MODIFIED_DIR / "catalog_Remote.hash")
-        print(f"[CATALOG-REMOTE] 复制 catalog_Remote.hash -> modified/")
+    # 2) 两个 hash（内容相同，都是官方当前的 catalog hash）
+    for _hn in ("catalog_Android.hash", "catalog_Remote.hash"):
+        _hs = ROOT_DIR / _hn
+        if _hs.is_file():
+            shutil.copy2(_hs, _catalog_dir / _hn)
+            print(f"[CATALOG] {_hn} -> {_catalog_dir.relative_to(MODIFIED_DIR)}")
+            _copied_catalog += 1
+
+    # 3) 兼容：根目录也放一份 catalog_Remote.json（部分版本会直接请求）
+    _gzk = ROOT_DIR / "catalog_Remote.json.gz"
+    if _gzk.is_file():
+        import gzip
+        with gzip.open(_gzk, "rb") as _f:
+            _data = _f.read()
+        (MODIFIED_DIR / "catalog_Remote.json").write_bytes(_data)
+        print(f"[CATALOG] catalog_Remote.json 解压到根目录 ({len(_data)} B)")
         _copied_catalog += 1
 
     if not _copied_catalog:
-        print("[WARN] 仓库根目录没有 catalog_Remote.json(.gz)，客户端可能无法初始化")
+        print("[WARN] 仓库里没有 catalog 文件，客户端可能无法初始化")
 
     exclusion_count = copy_exclusion_bundles(
         exclusions,
