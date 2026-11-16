@@ -1265,6 +1265,34 @@ def main() -> int:
     if not _copied_catalog:
         print("[WARN] 仓库里没有 catalog 文件，客户端可能无法初始化")
 
+    # ========================================================
+    # 5.2 部署 Patch 热更文件
+    # ========================================================
+    #
+    # 客户端启动时会读 Patch/patch_assetmanifest，里面记录：
+    #     3_0_2,<md5>
+    #     3_0_3,<md5>
+    # 然后按 md5 去 {ResUrls}/pool/Patch/<md5> 下载。
+    #
+    # 我们的源上缺这个文件时，游戏会停在「需要下载 16.43 MB 的更新包，
+    # 是否继续？」，点确认也没反应（因为 404）。
+    #
+    # 官方地址实测：static.bluearchive-cn.com/prodm39/pool/Patch/<md5>
+    # 大小 67,308 B，MD5 与文件名一致。
+    # ========================================================
+
+    _patch_src = ROOT_DIR / "patch_3_0_2.bytes"
+    if _patch_src.is_file():
+        import hashlib as _hl
+        _pd = _patch_src.read_bytes()
+        _ph = _hl.md5(_pd).hexdigest()
+        _pdir = MODIFIED_DIR / "pool" / "Patch" / _ph[:2]
+        _pdir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_patch_src, _pdir / _ph)
+        print(f"[PATCH] pool/Patch/{_ph[:2]}/{_ph}  ({len(_pd)} B)")
+    else:
+        print("[WARN] 仓库里没有 patch_3_0_2.bytes，客户端可能卡在更新提示")
+
     exclusion_count = copy_exclusion_bundles(
         exclusions,
         build_bundle_map(official_catalog),
