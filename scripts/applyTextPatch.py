@@ -173,11 +173,12 @@ YEAR_RULES = [("第1年", "1年生"), ("第2年", "2年生"), ("第3年", "3年�
 # 两者都不移动已有数据的偏移，因此不会破坏 flatbuffer 结构。
 
 FLATBUFFER_FLEX_RULES = [
-    # 暂时禁用：实测会导致 GameDataInitializer.LoadInBatches 抛
-    # ObjectDisposedException，游戏卡在「正在初始化游戏数据」。
-    # 等定位到具体破坏结构的记录后再恢复。
-    # ("提翡瑞", "提法瑞特"),
-    # ("庚", "鹿江"),
+    # 2026-11-16 重新启用。旧实现漏写字符串终止符（4+len(payload) 恰为 4 的
+    # 倍数时 pad 算出 0），163 个追加串里有 44 个没有 0x00 结尾，正是
+    # GameDataInitializer.LoadInBatches 抛 ObjectDisposedException 的真因。
+    # 终止符已改为显式写入，并由 check_flex_terminators() 在写回前逐串校验。
+    ("提翡瑞", "提法瑞特"),
+    ("庚", "鹿江"),
 ]
 
 # 执行完必须为 0 的旧词；非 0 说明规则漏了或顺序错了
@@ -326,6 +327,57 @@ def _fb_string_fields(d):
         return
 
 
+def check_flex_terminators(cur) -> list:
+    """校验变长层：每个被替换的串都要能按 flatbuffers 规则读回新词。
+
+    检查三件事，任一失败都算严重错误：
+      1. 追加串以 0x00 收尾（缺了客户端会越界读）
+      2. 追加串起点 4 字节对齐
+      3. 按字段 uoffset 解析，能读出期望的新字符串
+    必须返回空列表才允许写回。
+    """
+    import struct
+    bad = []
+    if not FLATBUFFER_FLEX_RULES:
+        return bad
+    tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+    for table in tables:
+        cols = [c[1] for c in cur.execute('PRAGMA table_info("%s")' % table)]
+        if "Bytes" not in cols:
+            continue
+        for rowid, blob in cur.execute('SELECT rowid, Bytes FROM "%s"' % table).fetchall():
+            if not isinstance(blob, (bytes, bytearray)):
+                continue
+            d = bytes(blob)
+            for fpos, sstart, slen in _fb_string_fields(d):
+                try:
+                    txt = d[sstart:sstart + slen].decode("utf-8")
+                except Exception:
+                    continue
+                if not any(new in txt for _, new in FLATBUFFER_FLEX_RULES):
+                    continue
+                # 1) 终止符
+                if sstart + slen >= len(d) or d[sstart + slen] != 0:
+                    bad.append((table, rowid, "缺少 0x00 终止符", fpos, sstart, txt))
+                    continue
+                # 2) 对象起点对齐
+                obj = sstart - 4
+                if obj < 4 or obj % 4:
+                    bad.append((table, rowid, "长度前缀未 4 字节对齐 obj=%d" % obj,
+                                fpos, sstart, txt))
+                    continue
+                # 3) 字段 uoffset 必须正好指向长度前缀
+                uoff = struct.unpack_from("<I", d, fpos)[0]
+                if fpos + uoff != obj:
+                    bad.append((table, rowid,
+                                "uoffset 指向错误 %d!=%d" % (fpos + uoff, obj),
+                                fpos, sstart, txt))
+                    continue
+                if struct.unpack_from("<I", d, obj)[0] != slen:
+                    bad.append((table, rowid, "长度前缀不匹配", fpos, sstart, txt))
+    return bad
+
+
 def patch_flatbuffer(blob, rules):
     """对单个 flatbuffer blob 应用变长替换，返回 (新blob, 替换数)。
 
@@ -356,12 +408,24 @@ def patch_flatbuffer(blob, rules):
 
         payload = new_txt.encode("utf-8")
         base = len(d) + len(appended)
-        entry = struct.pack("<I", len(payload)) + payload
-        pad = (4 - (len(entry) % 4)) % 4
-        entry += b"\x00" * pad
+        # 追加串起点先对齐到 4 字节（flatbuffers 要求长度前缀按 4 字节对齐）
+        if base % 4:
+            pad = (-base) % 4
+            appended += b"\x00" * pad
+            base += pad
+        # flatbuffers 字符串必须是「4B 长度 + UTF-8 正文 + 至少一个 0x00」。
+        # 旧写法把终止符算进了补位：len(4+payload) 恰为 4 的倍数时 pad=0，
+        # 结果一个 0x00 都不写，客户端读完正文会越界继续读，
+        # 表现为 GameDataInitializer.LoadInBatches 抛异常 / 卡「正在初始化游戏数据」。
+        # 现在终止符显式写入，补位只负责把整个 entry 对齐到 4 字节。
+        entry = struct.pack("<I", len(payload)) + payload + b"\x00"
+        entry += b"\x00" * ((-len(entry)) % 4)
         appended += entry
 
-        new_content = base + 4
+        # uoffset 必须指向【字符串对象起点】（4B 长度前缀所在处），
+        # 不是正文起点。旧写法多加了 4，指针落到正文上，
+        # 客户端把 UTF-8 正文当长度读，于是整条记录解析崩掉。
+        new_content = base
         struct.pack_into("<I", d, fpos, (new_content - fpos) & 0xFFFFFFFF)
         total += 1
 
@@ -613,6 +677,20 @@ def main() -> int:
 
 
     print(f"[TEXT] 变长层      : {fb_changed} 行（flatbuffer）")
+
+    # 变异层刚写完，立刻校验每个追加串都有 0x00 终止符。
+    # 这一步是 2026-11-16 那次「卡正在初始化游戏数据」的防火墙：
+    # 没有它，缺终止符的串会静默流到客户端才炸。
+    bad = check_flex_terminators(cur)
+    if bad:
+        con.close()
+        raise RuntimeError(
+            "变长层校验未通过，共 %d 处，已中止（不会推送半成品）：\n%s"
+            % (len(bad), "\n".join(
+                "  %s rowid=%s %s  字段@%s 正文@%s  %r" % b for b in bad[:10]))
+        )
+    if fb_changed:
+        print(f"[TEXT] 结构自检    : {fb_changed} 行，终止符/对齐/uoffset/长度 全部通过")
 
     con.commit()
     print(f"[TEXT] 名字层      : {name_changed} 行（全库）")
