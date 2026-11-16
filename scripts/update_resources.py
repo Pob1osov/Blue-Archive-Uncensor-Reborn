@@ -61,12 +61,16 @@ OFFICIAL_TABLE_BUNDLE_BASE = (
     "/prodm39/pool/TableBundles"
 )
 
-# 注意：原先这里还有一个 OLD_EXCEL_DB_URL，指向外部镜像上的旧版 ExcelDB，
-# 供 updateExcelDB.py 做「旧库整行覆盖」。该机制依赖旧库与新库逐行对齐，
-# 官方表一旦增删行就会静默跳过、改了等于没改，已废弃。
-# 现在由 scripts/applyTextPatch.py 直接在官方现役表上就地改写。
-# updateExcelDB.py 仍保留在仓库里，但已不在流水线中被调用。
-
+# 旧版 ExcelDB：上游 InfiniteAstra 放在自己的镜像上，供「按 ID 整行还原」用。
+# 2026-11-17 决定重新启用该机制（与上游 dev-r2 的 updateExcelDB.py 对齐），
+# 但做了两处加固：
+#   · 官方表增删行导致对不齐时，跳过该行而不是静默失败
+#   · 还原会删掉某些词（桃信 -> 空），因此还原后再由 applyTextPatch 补回日服词
+OLD_EXCEL_DB_URL = (
+    "https://mx.infastra.de5.net"
+    "/prodm39/pool/TableBundles/51/"
+    "517bb1fb1aa4d980ab87644ec10ecb2a"
+)
 
 # ============================================================
 # HTTP Session
@@ -1487,6 +1491,42 @@ def main() -> int:
     # 现在改成直接在官方现役表上就地替换：不依赖旧库，没有对齐要求，
     # 每次都会做残留校验，改不动就直接报错。
     # ========================================================
+
+    # ========================================================
+    # 9.5 上游 409 ID 整行还原
+    #
+    # 与上游 dev-r2 的 updateExcelDB.py 一致：把旧版 ExcelDB 中指定
+    # ID 的行整体覆盖到新表。覆盖的是剧情脚本/对话等大段文本。
+    #
+    # 加固：
+    #   · 旧库下载失败 -> 跳过，继续跑后面的 applyTextPatch
+    #   · 行数对不齐（官方增删行）-> 跳过该行，不静默假装成功
+    #   · 还原会丢词（桃信/桃桃朋友/地下市场…）-> 已由 applyUpstreamRestore
+    #     的缺词保护跳过那些行，再由 applyTextPatch 补日服词
+    # ========================================================
+
+    excel_old_path = ROOT_DIR / "ExcelDB_old.db"
+    restored = 0
+    try:
+        print()
+        print("[RESTORE] 下载旧版 ExcelDB（上游镜像）")
+        download_bytes(OLD_EXCEL_DB_URL, excel_old_path)
+        print(f"[RESTORE] 旧库 {excel_old_path.stat().st_size} B")
+        run_script(
+            "applyUpstreamRestore.py",
+            str(excel_old_path),
+            str(excel_new_path),
+        )
+        restored = 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"[RESTORE][WARN] 旧库还原失败，跳过该步骤: {exc}")
+        print("[RESTORE][WARN] 构建将继续，文本仍会应用角色名/SKIP/AUTO/变长替换")
+    finally:
+        if excel_old_path.exists():
+            try:
+                excel_old_path.unlink()
+            except OSError:
+                pass
 
     print()
     print("[TEXT] 就地改写 ExcelDB（文本/角色名/学年）")
