@@ -1243,13 +1243,18 @@ def main() -> int:
     # 这里在 rebake 之后重算 Crc/Size，让 catalog 与实际文件一致。
     # ========================================================
 
-    if rebaked:
+    # 无条件执行：即使这次没有 rebake，copy_modified_bundles 拷进来的包
+    # 也可能与 catalog 记录不一致（替换图烘焙会改变体积）。
+    if True:
         _recommitted = 0
         _catalog_entries = build_bundle_map(official_catalog)
-        for _name in exclusions:
-            _p = (MODIFIED_DIR / "AssetBundles" / "Android" / _name)
-            if not _p.is_file():
-                continue
+        # 扫整个 modified/：rebake 改过的、copy_modified_bundles 拷进来的，
+        # 都要重算。只扫 exclusions 会漏掉「替换图烘焙」类的包。
+        _mod_dir = MODIFIED_DIR / "AssetBundles" / "Android"
+        _scan = sorted(_mod_dir.glob("*.bundle")) if _mod_dir.is_dir() else []
+        for _p_maybe in _scan:
+            _name = _p_maybe.name
+            _p = _p_maybe
             _e = _catalog_entries.get(_name)
             if _e is None:
                 continue
