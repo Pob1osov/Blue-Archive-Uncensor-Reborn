@@ -1191,6 +1191,56 @@ def main() -> int:
         copy_modified_bundles()
     )
 
+    # ========================================================
+    # 5.1 复制 Unity Addressables 目录文件到部署根目录
+    # ========================================================
+    #
+    # 客户端启动时卡在「Initialize Catalog」就是因为缺这两个文件：
+    #     catalog_Remote.json    Unity Addressables 的目录（约 77 MB）
+    #     catalog_Remote.hash    它的校验值
+    #
+    # 请求路径是 {ResUrls}/catalog_Remote.json，也就是站点根目录，
+    # 不是 AssetBundles/ 下面。之前 CI 从不产出它们，
+    # 所以换源后客户端一直拿不到，卡死在初始化。
+    #
+    # 仓库根目录放一份，这里复制到 modified/ 根目录即可。
+    # ========================================================
+
+    _copied_catalog = 0
+    MODIFIED_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 情况 A：仓库里是压缩版 catalog_Remote.json.gz（GitHub 单文件限 25MB，
+    # 77MB 的原始 json 传不上去，所以压缩后入库，这里解压还原）
+    _gz = ROOT_DIR / "catalog_Remote.json.gz"
+    _plain = ROOT_DIR / "catalog_Remote.json"
+
+    if _gz.is_file():
+        import gzip
+        _dst = MODIFIED_DIR / "catalog_Remote.json"
+        with gzip.open(_gz, "rb") as _f:
+            _data = _f.read()
+        _dst.write_bytes(_data)
+        print(
+            f"[CATALOG-REMOTE] 解压 {_gz.name} -> modified/catalog_Remote.json"
+            f"  ({len(_data)} B)"
+        )
+        _copied_catalog += 1
+    elif _plain.is_file():
+        _dst = MODIFIED_DIR / "catalog_Remote.json"
+        shutil.copy2(_plain, _dst)
+        print(f"[CATALOG-REMOTE] 复制 {_plain.name} -> modified/  ({_dst.stat().st_size} B)")
+        _copied_catalog += 1
+
+    # hash 文件（小，直接复制）
+    _h = ROOT_DIR / "catalog_Remote.hash"
+    if _h.is_file():
+        shutil.copy2(_h, MODIFIED_DIR / "catalog_Remote.hash")
+        print(f"[CATALOG-REMOTE] 复制 catalog_Remote.hash -> modified/")
+        _copied_catalog += 1
+
+    if not _copied_catalog:
+        print("[WARN] 仓库根目录没有 catalog_Remote.json(.gz)，客户端可能无法初始化")
+
     exclusion_count = copy_exclusion_bundles(
         exclusions,
         build_bundle_map(official_catalog),
