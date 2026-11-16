@@ -572,6 +572,47 @@ def find_exclusion_bundles() -> dict[str, Path]:
     return result
 
 
+# ============================================================
+# 文本层变更检测
+# ============================================================
+
+TEXT_PATCH_STAMP = ROOT_DIR / ".textpatch_stamp"
+
+
+def _text_patch_fingerprint(official_excel_crc: str) -> str:
+    """文本改写指纹 = applyTextPatch.py 内容 MD5 + 官方 ExcelDB Crc。
+
+    只有两者之一变化时才需要重写 ExcelDB：
+      * 脚本变了   -> 替换规则可能变
+      * 官方表变了 -> 必须在新表上重新应用
+
+    都没变时，重写结果必然与上次一致，跳过即可，
+    客户端也就不会产生 160MB 的下载。
+    """
+    import hashlib
+
+    script = SCRIPTS_DIR / "applyTextPatch.py"
+    h = hashlib.md5()
+    h.update(script.read_bytes() if script.is_file() else b"missing")
+    h.update(b"|")
+    h.update(str(official_excel_crc).encode())
+    return h.hexdigest()
+
+
+def _read_stamp() -> str:
+    try:
+        return TEXT_PATCH_STAMP.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _write_stamp(value: str) -> None:
+    try:
+        TEXT_PATCH_STAMP.write_text(value + "\n", encoding="utf-8")
+    except Exception as exc:
+        print(f"[WARN] 写 stamp 失败: {exc}")
+
+
 def load_exclusion_baseline() -> dict[str, dict]:
     """读取 assetexclusions/.baseline.json。
 
@@ -1182,6 +1223,58 @@ def main() -> int:
         build_bundle_map(official_catalog),
     )
 
+    # ========================================================
+    # 5.6 rebake 之后重算 catalog 里这些包的 Crc/Size
+    # ========================================================
+    #
+    # 为什么必须重算
+    # --------------
+    # catalog 的 Crc/Size 是在 copy_exclusion_bundles 阶段算的，
+    # 那时用的是 exclusions 里的【原始包】。
+    # rebake 会把 replacement/ 的贴图叠加进去，文件体积变了，
+    # 但 catalog 仍记着旧值，于是：
+    #
+    #   uploadR2     上传 rebake 后的新文件（大）
+    #   reconcileR2  对比 catalog 旧值 -> 判定不一致
+    #   用 exclusions 原始包"修复" R2 -> 把叠加的贴图覆盖掉
+    #
+    # 结果：R2 上是没有替换贴图的版本，界面回退。
+    #
+    # 这里在 rebake 之后重算 Crc/Size，让 catalog 与实际文件一致。
+    # ========================================================
+
+    if rebaked:
+        _recommitted = 0
+        _catalog_entries = build_bundle_map(official_catalog)
+        for _name in exclusions:
+            _p = (MODIFIED_DIR / "AssetBundles" / "Android" / _name)
+            if not _p.is_file():
+                continue
+            _e = _catalog_entries.get(_name)
+            if _e is None:
+                continue
+            _h = hashlib.md5()
+            with _p.open("rb") as _fh:
+                while True:
+                    _c = _fh.read(1024 * 1024)
+                    if not _c:
+                        break
+                    _h.update(_c)
+            _md5 = _h.hexdigest()
+            _size = _p.stat().st_size
+            if _e.get("Crc") != _md5 or int(_e.get("Size", -1)) != _size:
+                print(
+                    f"[CATALOG-RECOMPUTE] {_name}\n"
+                    f"    Crc : {str(_e.get('Crc'))[:12]} -> {_md5[:12]}\n"
+                    f"    Size: {_e.get('Size')} -> {_size}"
+                )
+                _e["Crc"] = _md5
+                _e["Size"] = _size
+                _recommitted += 1
+        if _recommitted:
+            save_json(official_catalog_path, official_catalog)
+            print(f"[CATALOG-RECOMPUTE] 已更新 {_recommitted} 个包的记录")
+
     print(
         f"实际修改 Bundle: "
         f"{modified_bundle_count}"
@@ -1291,6 +1384,16 @@ def main() -> int:
     print()
     print("[TEXT] 就地改写 ExcelDB（文本/角色名/学年）")
 
+    # 注意：这里刻意【不做】「规则没变就跳过」的优化。
+    #
+    # 原因：跳过改写会让 excel_new_path 停留在刚下载的官方原表，
+    # 随后算出的是官方 MD5，manifest 记录官方 Crc，
+    # 客户端看到 Crc 变回官方值，就会把已部署的篡改表退回官方版 ——
+    # 等于把汉化撤销掉。
+    #
+    # 真正省流量的做法应该是「复用上一次产出的篡改表」，
+    # 那需要把上次的 ExcelDB 也缓存起来，复杂度高、收益有限
+    # （离线构建本来就要跑一遍，跳过省的是 CI 时间不是玩家流量）。
     run_script(
         "applyTextPatch.py",
         str(excel_new_path),
