@@ -1220,15 +1220,29 @@ def main() -> int:
 
     _copied_catalog = 0
 
-    # 1) catalog_Android.zip（客户端直接请求这个）
-    _z = ROOT_DIR / "catalog_Android.zip"
-    if _z.is_file():
-        shutil.copy2(_z, _catalog_dir / "catalog_Android.zip")
+    # 1) zip 放在两处，覆盖客户端可能请求的所有路径
+    #
+    # 实测设备上游戏会生成 catalog_Remote.zip（下载中的临时文件），
+    # 说明它请求的可能是根目录的 catalog_Remote.zip；
+    # 而 CF 日志里又出现过 AssetBundles/Catalog/<ver>/Android/catalog_Android.zip。
+    # 两个都放，避免再猜错。
+    for _zn in ("catalog_Android.zip", "catalog_Remote.zip"):
+        _z = ROOT_DIR / _zn
+        if not _z.is_file():
+            continue
+        # 放到版本目录
+        shutil.copy2(_z, _catalog_dir / _zn)
         print(
-            f"[CATALOG] catalog_Android.zip -> {_catalog_dir.relative_to(MODIFIED_DIR)}"
+            f"[CATALOG] {_zn} -> {_catalog_dir.relative_to(MODIFIED_DIR)}"
             f"  ({_z.stat().st_size} B)"
         )
         _copied_catalog += 1
+
+    # 根目录也放一份 catalog_Remote.zip（约 12 MB，客户端临时文件同名）
+    _zr = ROOT_DIR / "catalog_Remote.zip"
+    if _zr.is_file():
+        shutil.copy2(_zr, MODIFIED_DIR / "catalog_Remote.zip")
+        print(f"[CATALOG] catalog_Remote.zip -> 根目录 ({_zr.stat().st_size} B)")
 
     # 2) 两个 hash（内容相同，都是官方当前的 catalog hash）
     for _hn in ("catalog_Android.hash", "catalog_Remote.hash"):
