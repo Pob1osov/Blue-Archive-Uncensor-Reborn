@@ -705,7 +705,10 @@ def rebake_replacement_into_exclusions(
                 cwd = os.getcwd()
                 os.chdir(str(MODIFIED_DIR))
                 try:
-                    env.save(out_path=str(tmp_dir))
+                    # pack="original" 保持原来的压缩方式。
+                    # 默认 pack="none" 会导致包体积膨胀 3 倍以上，
+                    # 客户端解压耗时剧增、卡在「正在初始化游戏资源」。
+                    env.save(pack="original", out_path=str(tmp_dir))
                 finally:
                     os.chdir(cwd)
 
