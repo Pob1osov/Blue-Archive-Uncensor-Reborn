@@ -354,6 +354,10 @@
       2291564435,
       356271106,
       3515831479,
+      4014114460,
+      309413923,
+      2459553210,
+      1019798947,
       404105934,
       2978806820,
       2206508743,
@@ -422,6 +426,65 @@
       26009,
       10112,
       26001
+    ]
+  },
+  "CharacterDialogEventDBSchema": {
+    "primary_key": "OriginalCharacterId",
+    "ids": [
+      16001,
+      10028,
+      10112
+    ]
+  },
+  "CharacterDialogSubtitleDBSchema": {
+    "primary_key": "CharacterId",
+    "ids": [
+      16001,
+      13000,
+      10028,
+      20019,
+      10112,
+      20001,
+      26009,
+      26001
+    ]
+  },
+  "CharacterVoiceSubtitleDBSchema": {
+    "primary_key": "CharacterVoiceGroupId",
+    "ids": [
+      16001,
+      13000,
+      10028,
+      20019
+    ]
+  },
+  "AcademyMessangerDBSchema": {
+    "primary_key": "CharacterId",
+    "ids": [
+      16001,
+      13000,
+      10028,
+      20019,
+      10112,
+      10003,
+      10010,
+      13007,
+      23006,
+      13011,
+      10033,
+      20015,
+      10072,
+      20027,
+      10082,
+      20033,
+      10102,
+      10124,
+      13010,
+      10006,
+      10007,
+      20003,
+      16008,
+      10048
     ]
   }
 }
