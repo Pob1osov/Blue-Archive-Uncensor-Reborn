@@ -49,9 +49,6 @@ TEXT_RULES = [
     ("地下市场", "黑市"),
     ("快速战斗", "扫荡"),
     ("最小值", "MIN"),
-    ("最大值", "MAX"),
-    ("信任等级", "羁绊等级"),
-    ("评级", "Rank."),
     # 「庚」在 LocalizeDBSchema 里是独立布局，变长必须走文本层按长度重建；
     # flatbuffer 槽由 FLATBUFFER_FLEX_RULES 负责。
     ("庚", "鹿江"),
