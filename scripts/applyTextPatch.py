@@ -40,16 +40,13 @@ from renameGeng import (  # noqa: E402
 # 文本层：按长度前缀重写，允许不等长。
 # 顺序敏感 —— 「好感等级」必须先于「等级」规则生效，否则会被拆成「好感Lv.」。
 TEXT_RULES = [
-    # 2026-11-17 决定：接入上游 409 ID 还原后，还原会把某些词直接删掉
-    # （「尝试用桃信进行联络」-> 「尝试用进行联络」），出现缺词。
-    # 因此这里补回日服词，保证句子完整：
-    #   上游删词 -> 我们用日服说法占位，而不是留空。
-    ("桃桃朋友", "MomoFriends"),
-    ("桃信", "MomoTalk"),
-    ("地下市场", "黑市"),
-    ("快速战斗", "扫荡"),
-    ("最小值", "MIN"),
-    # 「庚」在 LocalizeDBSchema 里是独立布局，变长必须走文本层按长度重建；
+    # 2026-11-17 修正：上游的「还原」实际是**替换**而不是删词。
+    # 实测上游旧库已完成：
+    #   等级→Lv. 评级→RANK 桃信→MomoTalk 桃桃朋友→MomoFriends
+    #   地下市场→黑市 快速战斗→扫荡 成员→学员 最小值/最大值→MIN/MAX
+    # 这些全部交给「整行还原」处理，本层不再重复。
+    # 本层只保留「短改长」里必须走文本层的个别词。
+    # 「庚」在 LocalizeDBSchema 里是独立布局，变长必须按长度重建；
     # flatbuffer 槽由 FLATBUFFER_FLEX_RULES 负责。
     ("庚", "鹿江"),
 ]
@@ -262,6 +259,45 @@ def _fb_string_fields(d):
         return
 
 
+def _fb_all_string_refs(d):
+    """扫描整个 blob 的所有 4 字节对齐位置，找出指向合法 flatbuffer 字符串的
+    uoffset 字段，产出 (字段值位置, 内容起始, 长度)。
+
+    为什么需要它
+    ------------
+    _fb_string_fields 只走「根表」的直接字段。像 LocalizeEtc / ScenarioScript
+    这类把文本放在嵌套表（vector of tables、子表字段）里的行，根表扫不到任何
+    字符串，于是匹配不到要替换的词——这正是「庚 / 提翡瑞」残留的真因。
+
+    flatbuffers 里 uoffset 一律向前指向对象起点，字符串对象形如
+    [4B 长度][UTF-8 正文][0x00]。据此全量扫描即可覆盖任意嵌套层级。
+
+    误判防护：只认「能完整解出合法 UTF-8、正文不含 NUL、长度合理」的目标，
+    且调用方只在正文确实命中替换词时才改写，因此不会动到二进制数据。
+    """
+    import struct
+    n = len(d)
+    seen = set()
+    for p in range(0, n - 4, 4):
+        u = struct.unpack_from("<I", d, p)[0]
+        if u < 8 or u % 4:
+            continue
+        t = p + u
+        if t % 4 or not (4 <= t < n):
+            continue
+        r = _fb_try_str(d, t)
+        if r is None:
+            continue
+        sstart, slen = r
+        if slen > 4000:
+            continue
+        key = (p, sstart, slen)
+        if key in seen:
+            continue
+        seen.add(key)
+        yield p, sstart, slen
+
+
 def check_flex_terminators(cur) -> list:
     """校验变长层：每个被替换的串都要能按 flatbuffers 规则读回新词。
 
@@ -324,6 +360,12 @@ def patch_flatbuffer(blob, rules):
     total = 0
 
     fields = list(_fb_string_fields(bytes(d)))
+    # 根表扫不到时，退化为全 blob 的 uoffset 扫描（覆盖嵌套表 / vector of tables）。
+    seen_f = set(fields)
+    for f in _fb_all_string_refs(bytes(d)):
+        if f not in seen_f:
+            fields.append(f)
+            seen_f.add(f)
     if not fields:
         return bytes(blob), 0
 
