@@ -3,10 +3,6 @@
     "based_on": "43a9b02c5660",
     "note": "按上游标准改法：问号 Btn_Information x -888 -> -708（右移给英文标题腾空间），开屏动画 Momotalk pos.x 40 -> 0（居中）。贴图保持官方 256x64 不自行绘制。基于官方 202611051844。"
   },
-  "prologdepengroup-assets-_mx-uis-atlas-_mxprolog-2026-06-04_assets_all_3461770353.bundle": {
-    "based_on": "upstream-up",
-    "note": "采用 UP 主的真彩色日服贴图版本（含 VICTORY/CONTINUE/WARNING 等角标）。贴图集合与官方 202611051844 完全一致，已校验结构兼容。"
-  },
   "ui-_mxload-prefabs-2026-06-04_assets_all_1444842477.bundle": {
     "based_on": "upstream-up",
     "note": "采用 UP 主的真彩色日服贴图版本（含 VICTORY/CONTINUE/WARNING 等角标）。贴图集合与官方 202611051844 完全一致，已校验结构兼容。"
