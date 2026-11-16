@@ -105,9 +105,38 @@ EXACT_RULES = {
     # 同样不能用子串：「新」在库里作子串出现 407 处
     # （「重新」「新手」「更新」…）。整条等于「新」的只有 2 处，是角标。
     "新": "New",
+    # 战斗 / 剧情播放控制按钮「自动」-> 「AUTO」
+    #
+    # 「自动」作子串有 69 处（「自动售货机」「自动人偶」「自动恢复」…），
+    # 只有 3 处是整条相等，即控制按钮标签。
+    "自动": "AUTO",
+    # 「跳过」-> 「SKIP」
+    #
+    # 子串 27 处（「跳过轮次」「是否跳过？」…），整条相等 5 处 = 按钮。
+    "跳过": "SKIP",
 }
 
 BOND = "羁绊等级"
+
+# 「等级」-> 「Lv.」的通用替换，但必须避让这些复合词。
+#
+# 背景：库里「等级」作子串 109 处。其中「羁绊等级」「好感等级」「据点等级」
+# 这类是专有名词，硬换成「羁绊Lv.」会读不通，所以整条跳过。
+# 其余（「等级{0}」「等级1～30」「已达到最高等级。」等）都应显示为 Lv.。
+LEVEL_WORD = "等级"
+LEVEL_REPLACEMENT = "Lv."
+LEVEL_PROTECT = (
+    "羁绊等级",
+    "好感等级",
+    "据点等级",
+    "熟练度等级",
+    "账号等级",
+    "成员等级",
+    "学员等级",
+    "技能等级",
+    "推荐等级",
+    "最高等级",
+)
 
 # 战斗属性：只在短标签（len<=12）里替换，避免污染长句里的「命中判定」等
 COMBAT_RULES = [("暴击", "CRIT"), ("闪避", "EVA"), ("命中", "HIT")]
@@ -501,6 +530,10 @@ def apply_text_layer(cur) -> int:
         if original in EXACT_RULES:
             value = EXACT_RULES[original]
         value = value.replace("\x01BOND\x01", BOND)
+        # 「等级」->「Lv.」，但整条跳过专有名词（羁绊等级 / 据点等级 …）。
+        # 放在最后，让「好感等级 -> 羁绊等级」先定型，才不会被拆开误伤。
+        if LEVEL_WORD in value and not any(p in value for p in LEVEL_PROTECT):
+            value = value.replace(LEVEL_WORD, LEVEL_REPLACEMENT)
         if value != original:
             cur.execute(
                 "UPDATE LocalizeDBSchema SET Bytes=? WHERE Key=?",
