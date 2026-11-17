@@ -4,12 +4,12 @@
     "note": "按上游标准改法：问号 Btn_Information x -888 -> -708（右移给英文标题腾空间），开屏动画 Momotalk pos.x 40 -> 0（居中）。贴图保持官方 256x64 不自行绘制。基于官方 202611051844。"
   },
   "ui-_mxload-prefabs-2026-06-04_assets_all_1444842477.bundle": {
-    "based_on": "upstream-up",
-    "note": "采用 UP 主的真彩色日服贴图版本（含 VICTORY/CONTINUE/WARNING 等角标）。贴图集合与官方 202611051844 完全一致，已校验结构兼容。"
+    "based_on": "14a7964e7a50",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
   },
   "ui-_mxload-prefabs-2026-06-04_assets_all_492340801.bundle": {
-    "based_on": "upstream-up",
-    "note": "采用 UP 主的真彩色日服贴图版本（含 VICTORY/CONTINUE/WARNING 等角标）。贴图集合与官方 202611051844 完全一致，已校验结构兼容。"
+    "based_on": "faee2ac82f4d",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
   },
   "uis-01_common-03_nonequipment-_mxload-textures-2026-06-04_assets_all_2254605384.bundle": {
     "based_on": "upstream-up",
@@ -22,5 +22,177 @@
   "prologgroup-assets-_mx-addressableasset-uis-00_images-imagefont-_mxprolog-2026-06-04_assets_all_2403408782.bundle": {
     "based_on": "upstream-up",
     "note": "采用 UP 主的真彩色日服贴图版本（含 VICTORY/CONTINUE/WARNING 等角标）。贴图集合与官方 202611051844 完全一致，已校验结构兼容。"
+  },
+  "assets-_mx-spinecharacters-ako_spr-_mxdependency-textassets-2026-06-04_assets_all_1901196531.bundle": {
+    "based_on": "5a4999bd4eb0",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ako_spr-_mxdependency-textures-2026-06-04_assets_all_1871735203.bundle": {
+    "based_on": "7dfa50bb8828",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-asuna_spr-_mxdependency-textassets-2026-06-04_assets_all_3931641753.bundle": {
+    "based_on": "3a403e40b6a9",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-asuna_spr-_mxdependency-textures-2026-06-04_assets_all_959690407.bundle": {
+    "based_on": "55dbb4090745",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0060_spr-_mxdependency-textassets-2026-06-04_assets_all_4239212899.bundle": {
+    "based_on": "34761f2c47ca",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0060_spr-_mxdependency-textures-2026-06-04_assets_all_1914277835.bundle": {
+    "based_on": "bb205ed5e3d8",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0088_spr-_mxdependency-textassets-2026-06-04_assets_all_3228819240.bundle": {
+    "based_on": "2fb012c62e93",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0088_spr-_mxdependency-textures-2026-06-04_assets_all_3962810243.bundle": {
+    "based_on": "24910cbfbc88",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0098_spr-_mxdependency-textassets-2026-06-04_assets_all_1950319931.bundle": {
+    "based_on": "87820ebfe6b3",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0098_spr-_mxdependency-textures-2026-06-04_assets_all_3935056547.bundle": {
+    "based_on": "6d53050a9849",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0099_spr-_mxdependency-textassets-2026-06-04_assets_all_3385168599.bundle": {
+    "based_on": "2ecabbd52a73",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0099_spr-_mxdependency-textures-2026-06-04_assets_all_3570496344.bundle": {
+    "based_on": "8a9cca2c46ea",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0100_spr-_mxdependency-textassets-2026-06-04_assets_all_2066547036.bundle": {
+    "based_on": "7ffa061bf863",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0100_spr-_mxdependency-textures-2026-06-04_assets_all_129232017.bundle": {
+    "based_on": "e2355520e632",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0101_spr-_mxdependency-textassets-2026-06-04_assets_all_1046658393.bundle": {
+    "based_on": "2d3cf7cf6788",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-ch0101_spr-_mxdependency-textures-2026-06-04_assets_all_2890730345.bundle": {
+    "based_on": "e2e1bce1bbad",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-eimi_spr-_mxdependency-textassets-2026-06-04_assets_all_4278919801.bundle": {
+    "based_on": "71c2ae45bc96",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-eimi_spr-_mxdependency-textures-2026-06-04_assets_all_4150273901.bundle": {
+    "based_on": "a3db012490b0",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-hibiki_spr-_mxdependency-textassets-2026-06-04_assets_all_1050125270.bundle": {
+    "based_on": "93d1b339d204",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-hibiki_spr-_mxdependency-textures-2026-06-04_assets_all_4217048726.bundle": {
+    "based_on": "5c5ead24bbf2",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-izumi_swimsuit_spr-_mxdependency-textassets-2026-06-04_assets_all_1225778441.bundle": {
+    "based_on": "29bcf83719a5",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-izumi_swimsuit_spr-_mxdependency-textures-2026-06-04_assets_all_2595592987.bundle": {
+    "based_on": "cd35f88b49ed",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-juri_spr-_mxdependency-textures-2026-06-04_assets_all_1476159420.bundle": {
+    "based_on": "576ea33b73c1",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-kotori_spr-_mxdependency-textures-2026-06-04_assets_all_604367536.bundle": {
+    "based_on": "6472b9afc1d7",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-mashiro_spr-_mxdependency-textassets-2026-06-04_assets_all_711113522.bundle": {
+    "based_on": "670e5c5b5e7a",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-mashiro_spr-_mxdependency-textures-2026-06-04_assets_all_1285677353.bundle": {
+    "based_on": "3c7ec140a4a9",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-np0058_spr-_mxdependency-textassets-2026-06-04_assets_all_3699970179.bundle": {
+    "based_on": "be3c2bedf10a",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-np0058_spr-_mxdependency-textures-2026-06-04_assets_all_4280894014.bundle": {
+    "based_on": "707b54be5693",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-np0124_spr-_mxdependency-textures-2026-06-04_assets_all_1128129293.bundle": {
+    "based_on": "1ae70daf3dd8",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-pina_spr-_mxdependency-textures-2026-06-04_assets_all_3639345018.bundle": {
+    "based_on": "fc3d31091489",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-sakurako_spr-_mxdependency-textassets-2026-06-04_assets_all_9165903.bundle": {
+    "based_on": "d85d9295f2f4",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-sakurako_spr-_mxdependency-textures-2026-06-04_assets_all_1010573711.bundle": {
+    "based_on": "c39d791a89b4",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-shimiko_spr-_mxdependency-textures-2026-06-04_assets_all_4250627780.bundle": {
+    "based_on": "5113618a454d",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-shiroko_robber_spr-_mxdependency-textassets-2026-06-04_assets_all_319233571.bundle": {
+    "based_on": "b8e210a97c4a",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-shiroko_robber_spr-_mxdependency-textures-2026-06-04_assets_all_2775593816.bundle": {
+    "based_on": "261d657ea26f",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-shiroko_spr-_mxdependency-textures-2026-06-04_assets_all_215154078.bundle": {
+    "based_on": "5e30c4ea5b38",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-shun_spr-_mxdependency-textures-2026-06-04_assets_all_3935972870.bundle": {
+    "based_on": "9b69e50e4117",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-sumire_spr-_mxdependency-textures-2026-06-04_assets_all_3931399966.bundle": {
+    "based_on": "d545627f3e35",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-tsubaki_spr-_mxdependency-textassets-2026-06-04_assets_all_2413335765.bundle": {
+    "based_on": "6fbbc228977f",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-tsubaki_spr-_mxdependency-textures-2026-06-04_assets_all_1854899713.bundle": {
+    "based_on": "1763fa63c545",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-tsurugi_spr-_mxdependency-textassets-2026-06-04_assets_all_752034602.bundle": {
+    "based_on": "b9d9087c0048",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "assets-_mx-spinecharacters-tsurugi_spr-_mxdependency-textures-2026-06-04_assets_all_143218420.bundle": {
+    "based_on": "cfc6e2ddc9c6",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
+  },
+  "prologdepengroup-assets-_mx-spinecharacters-hasumi_spr-_mxprolog-2026-06-04_assets_all_1982430108.bundle": {
+    "based_on": "6c977feadc46",
+    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
   }
 }
