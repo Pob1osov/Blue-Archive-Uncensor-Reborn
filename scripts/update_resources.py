@@ -959,7 +959,21 @@ def verify_custom_assets() -> None:
             problems.append(f"spine 包未在 .baseline.json 登记: {name}")
 
     # ---- 3. 已登记的定制包是否真的被复制进 modified/ ----
+    #
+    # 注意：replacement/ 里有同名贴图的包，会被 rebake_replacement_into_exclusions()
+    # 有意重写（体积/内容都会变），这几只只校验「存在」，不校验 md5。
     target_dir = MODIFIED_DIR / "AssetBundles" / "Android"
+
+    rep_root = ROOT_DIR / "replacement"
+    rep_dirs = sorted(
+        (d.name.strip().lower() for d in rep_root.iterdir() if d.is_dir()),
+        key=len,
+        reverse=True,
+    ) if rep_root.is_dir() else []
+
+    def has_replacement_dir(bundle_name: str) -> bool:
+        stem = bundle_name[: -len(".bundle")].strip().lower() if bundle_name.endswith(".bundle") else bundle_name.strip().lower()
+        return any(stem.startswith(k) for k in rep_dirs)
 
     for name, source in exclusions.items():
 
@@ -972,6 +986,10 @@ def verify_custom_assets() -> None:
         if not copied.is_file():
 
             problems.append(f"定制包未进入 modified/: {name}")
+
+            continue
+
+        if has_replacement_dir(name):
 
             continue
 
