@@ -893,6 +893,119 @@ def copy_exclusion_bundles(
 
 
 # ============================================================
+# 定制资产自检
+# ============================================================
+
+# 这些替换 PNG 是我们自己的定制（上游没有），一旦被上游同步盖掉，
+# 构建仍会「成功」，但游戏里的 BOSS/AUTO/初回 会悄悄退回中文。
+# 所以这里把它们的字节数以白名单形式钉死：改动必须是有意的。
+CUSTOM_REPLACEMENT_PNGS = {
+    "prologdepengroup-assets-_mx-uis-atlas-_mxprolog/Common.png": 2665796,
+    "prologdepengroup-assets-_mx-uis-atlas-_mxprolog/Floater.png": 77666,
+    "prologgroup-assets-_mx-addressableasset-uis-00_images-imagefont-_mxprolog/ImgFont_First_kr.png": 12411,
+}
+
+# spine 立绘反和谐包数量（上游 dev-r2/assetexclusions 的 spine 子集）
+EXPECTED_SPINE_BUNDLES = 43
+
+
+def verify_custom_assets() -> None:
+    """构建末期自检：定制贴图与 spine 立绘包是否齐全。
+
+    任何一项缺失都直接 raise，让 CI 变红——宁可不发版，
+    也不要发出一个「看起来正常、实际把反和谐吃掉」的版本。
+    """
+
+    problems: list[str] = []
+
+    # ---- 1. 定制替换 PNG 是否还在（字节数比 md5 更直观，且便于人工核对）----
+    replacement_dir = ROOT_DIR / "replacement"
+
+    for rel, expected_size in CUSTOM_REPLACEMENT_PNGS.items():
+
+        path = replacement_dir / rel
+
+        if not path.is_file():
+
+            problems.append(f"缺少定制贴图: {rel}")
+
+            continue
+
+        actual = path.stat().st_size
+
+        if actual != expected_size:
+
+            problems.append(
+                f"定制贴图被改动: {rel}（期望 {expected_size} B，实际 {actual} B）"
+            )
+
+    # ---- 2. spine 立绘包是否齐全且已登记 baseline ----
+    exclusions = find_exclusion_bundles()
+
+    spine = {n: p for n, p in exclusions.items() if "spinecharacters" in n}
+
+    if len(spine) < EXPECTED_SPINE_BUNDLES:
+
+        problems.append(
+            f"spine 立绘包不足: 期望 {EXPECTED_SPINE_BUNDLES} 个，实际 {len(spine)} 个"
+        )
+
+    baseline = load_exclusion_baseline()
+
+    for name in spine:
+
+        if name not in baseline:
+
+            problems.append(f"spine 包未在 .baseline.json 登记: {name}")
+
+    # ---- 3. 已登记的定制包是否真的被复制进 modified/ ----
+    target_dir = MODIFIED_DIR / "AssetBundles" / "Android"
+
+    for name, source in exclusions.items():
+
+        if name not in baseline:
+
+            continue
+
+        copied = target_dir / name
+
+        if not copied.is_file():
+
+            problems.append(f"定制包未进入 modified/: {name}")
+
+            continue
+
+        if hashlib.md5(copied.read_bytes()).hexdigest() != hashlib.md5(
+            source.read_bytes()
+        ).hexdigest():
+
+            problems.append(f"定制包复制后被改写: {name}")
+
+    if problems:
+
+        print()
+
+        print("=" * 72)
+
+        print("定制资产自检未通过")
+
+        print("=" * 72)
+
+        for p in problems:
+
+            print(f"  !! {p}")
+
+        raise RuntimeError(f"定制资产自检失败（{len(problems)} 项），已中止构建")
+
+    print()
+
+    print(
+        f"[VERIFY] 定制资产自检通过：贴图 {len(CUSTOM_REPLACEMENT_PNGS)} 张 / "
+        f"spine {len(spine)} 个 / baseline {len(baseline)} 条"
+    )
+
+
+# ============================================================
 # 主流程
 # ============================================================
 
@@ -1629,7 +1742,17 @@ def main() -> int:
     )
 
     # ========================================================
-    # 16. 清理临时文件
+    # 16. 定制资产自检
+    # ========================================================
+    #
+    # 到这一步 modified/ 里已经有：官方包 + 我们的 exclusion 包 + 烘焙进去的贴图。
+    # 再核对一遍「我们的定制是否真的都在」，防止上游同步把定制悄悄盖回官方版。
+    # 缺任何一项直接 raise，CI 变红，不发版。
+
+    verify_custom_assets()
+
+    # ========================================================
+    # 17. 清理临时文件
     # ========================================================
 
     cleanup_temp_files()
