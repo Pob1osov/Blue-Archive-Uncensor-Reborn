@@ -65,10 +65,38 @@ TEXT_RULES = [
 # 这条规则很关键：「等级」在表里是 14 个界面共用的标签，但「学员等级」
 # 「必杀技能等级」「技能等级」是各自独立的完整字符串，全局替换会把它们
 # 一并改成「学员Lv.」，那是错的。所以只认整条相等。
+# 按 Key 精确覆盖（优先级最高）。
+#
+# 为什么需要它
+# ------------
+# 同一段官方原文可能被十几个 Key 共用。比如官方有 14 个 Key 的值都是
+# 「等级」，全是各界面共用的行标签，从库内完全分不出哪个属于哪个界面。
+# 遇到「只想改某一个界面」的需求，只能按 Key 精确指定。
+#
+# 用法：{Key: 目标文本}。长度不要求相等（走 LocalizeDB 长度前缀重建）。
+KEY_OVERRIDE = {}
+
+
 EXACT_RULES = {
     "公告": "Notice",
     "未命中": "MISS",
-    "等级": "Lv.",
+    # 「等级」不做替换（2026-11-21 撤销）。
+    #
+    # 官方库里值恰为「等级」的 Key 共 14 个，全是各界面共用的行标签。
+    # 换成「Lv.」后，学员详情页「成长信息」第一行变成：
+    #
+    #     Lv.   Lv.90        <- 左边是标签、右边是数值，重复了
+    #
+    # 数值那一侧的「Lv.」是另一个 Key（811393088，官方本来就是 Lv.），
+    # 与标签无关。所以标签保留官方的「等级」即可，读作「等级  Lv.90」。
+    #
+    # 为什么不只改那一个 Key
+    # ----------------------
+    # 14 个 Key 的 Bytes 值完全一样（都是「等级」6 字节），
+    # 从库内无法区分哪个属于学员详情页；prefab 里的 LocalizeKey 引用
+    # 也抓不到（MonoBehaviour 无类型树，get_raw_data 返回空）。
+    # 因此只能整组保持官方原文。
+    # 若将来确认某个 Key 需要显示「Lv.」，用 KEY_EXACT_OVERRIDE 单独指定。
     # 抽卡页的「首次」标签 -> 「初回」
     #
     # 为什么用 EXACT_RULES 而不是 TEXT_RULES
@@ -634,6 +662,11 @@ def apply_text_layer(cur) -> int:
                 value = value.replace(old, new)
         if original in EXACT_RULES:
             value = EXACT_RULES[original]
+        # 按 Key 精确覆盖（优先于上面所有规则）。
+        # 用途：同一段官方原文被多个界面共用一个 Key 池时，
+        # 只能靠 Key 区分「某个界面要显示什么」。
+        if int(key) in KEY_OVERRIDE:
+            value = KEY_OVERRIDE[int(key)]
         value = value.replace("\x01BOND\x01", BOND)
         if value != original:
             cur.execute(
