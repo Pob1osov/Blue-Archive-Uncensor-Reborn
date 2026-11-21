@@ -275,6 +275,19 @@ FLATBUFFER_FLEX_RULES = [
     ("庚", "鹿江"),
 ]
 
+
+# 截断昵称层：作用在变长层之后，只做等长替换。
+#
+# 剧情里角色会用简称称呼「提翡瑞」，实测 23 处全是「小提翡」：
+#     「小，小提翡……真的没问题吗……？」  ->  「小，小提法……」
+# 昵称取的是旧名前两个字，既不是完整旧名（提翡瑞）也不是完整新名
+# （提法瑞特），所以前面两层都匹配不到。
+#
+# 为什么必须排在变长层之后：见 apply_nick_layer 的注释。
+NICK_RULES = [
+    ("提翡", "提法"),
+]
+
 # 执行完必须为 0 的旧词；非 0 说明规则漏了或顺序错了
 #
 # 注意：这里只校验 LocalizeDBSchema（文本层）。
@@ -631,11 +644,11 @@ def apply_text_layer(cur) -> int:
     return changed
 
 
-def apply_name_layer(cur) -> int:
-    for old, new in NAME_RULES:
+def apply_equal_len_layer(cur, rules, label="", quiet=False) -> int:
+    for old, new in rules:
         if len(old.encode("utf-8")) != len(new.encode("utf-8")):
             raise RuntimeError(
-                f"名字规则 {old!r} -> {new!r} 字节长度不等，"
+                f"{label or '等长替换'}规则 {old!r} -> {new!r} 字节长度不等，"
                 "会破坏 flatbuffer 偏移，已中止"
             )
 
@@ -650,7 +663,7 @@ def apply_name_layer(cur) -> int:
                 continue
             data = bytes(blob)
             hit = False
-            for old, new in NAME_RULES:
+            for old, new in rules:
                 ob, nb = old.encode("utf-8"), new.encode("utf-8")
                 if ob in data:
                     data = data.replace(ob, nb)
@@ -662,6 +675,35 @@ def apply_name_layer(cur) -> int:
                 )
                 changed += 1
     return changed
+
+
+def apply_name_layer(cur) -> int:
+    return apply_equal_len_layer(cur, NAME_RULES, "名字")
+
+
+def apply_nick_layer(cur) -> int:
+    """截断昵称层：必须放在变长层之后。
+
+    「小提翡」是「提翡瑞」截前两个字得到的昵称。它既不是完整旧名，
+    也不是完整新名，名字层和变长层都匹配不到，于是原样留在剧情里。
+
+    为什么不能放进名字层
+    --------------------
+    名字层在变长层之前跑。若那里有「提翡 -> 提法」，会把「提翡瑞」
+    先改成「提法瑞」，变长规则「提翡瑞 -> 提法瑞特」就再也匹配不到，
+    全名会退化成三个字的「提法瑞」。
+
+    放在变长层之后则刚好：此时全名已经是「提法瑞特」，剩下的
+    「提翡」只可能是昵称，替换成「提法」既等长又不会误伤。
+
+    孤儿字节说明
+    ------------
+    patch_flatbuffer 是「追加新串 + 改 uoffset」，旧串仍以孤儿字节
+    形式留在 blob 里。这一层会把这些孤儿字节一起改掉 —— 它们不被任何
+    uoffset 引用，客户端读不到，改了无副作用。
+    """
+    return apply_equal_len_layer(cur, NICK_RULES, "昵称")
+
 
 
 def apply_year_layer(cur) -> int:
@@ -828,6 +870,11 @@ def main() -> int:
 
     con.commit()
     print(f"[TEXT] 名字层      : {name_changed} 行（全库）")
+
+    # 截断昵称（小提翡 -> 小提法）。必须紧跟变长层之后、学年层之前。
+    nick_changed = apply_nick_layer(cur)
+    con.commit()
+    print(f"[TEXT] 昵称层      : {nick_changed} 行（等长）")
 
     year_changed = apply_year_layer(cur)
     con.commit()
