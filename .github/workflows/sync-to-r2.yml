@@ -270,7 +270,7 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: >-
           python scripts/mirrorMedia.py
-          --workers 12
+          --workers 32
           --max-failures 200
 
       - name: Update current.txt
