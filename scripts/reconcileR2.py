@@ -337,6 +337,7 @@ def main() -> int:
     # --------------------------------------------------------
 
     bad: list[dict] = []
+    missing: list[dict] = []
 
     for entry in entries:
 
@@ -348,6 +349,9 @@ def main() -> int:
         key = BUNDLE_KEY_PREFIX + name
 
         if key not in remote_sizes:
+
+            missing.append(entry)
+
             continue
 
         if remote_sizes[key] != int(entry["Size"]):
@@ -358,6 +362,33 @@ def main() -> int:
                 f"[MISMATCH] {name} "
                 f"catalog={entry['Size']} r2={remote_sizes[key]}"
             )
+
+    # R2 缺少的条目：客户端**不会**回落到官方源。
+    # 2026-11-26 实测：官方发布 202611191741 新增 20 个包（131.6 MB），
+    # R2 没有它们，客户端下到一半就报「网络连接失败」。
+    # 因此缺口必须补齐：从官方源下载后上传到 R2。
+    mirror_missing = os.environ.get("MIRROR_MISSING", "1") != "0"
+
+    if missing:
+
+        total_missing = sum(int(e["Size"]) for e in missing)
+
+        print(
+            f"[MISSING] R2 缺 {len(missing)} 个对象，"
+            f"合计 {total_missing / 1048576:.1f} MB"
+        )
+
+        if mirror_missing:
+
+            bad.extend(missing)
+
+        else:
+
+            for entry in missing[:20]:
+
+                print(f"  [SKIP] {entry['Name']}")
+
+            print("  （MIRROR_MISSING=0，本次只报告不补齐）")
 
     if not bad:
 
