@@ -261,8 +261,8 @@ jobs:
       - name: Mirror media pool to R2
         if: >-
           vars.MIRROR_MEDIA == '1' &&
-          steps.version.outputs.changed == 'true' &&
-          steps.build.outputs.changed == 'true'
+          (github.event_name == 'workflow_dispatch' ||
+           (steps.version.outputs.changed == 'true' && steps.build.outputs.changed == 'true'))
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
