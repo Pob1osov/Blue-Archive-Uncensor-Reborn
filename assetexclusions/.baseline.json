@@ -1,16 +1,4 @@
 {
-  "ui-_mxload-prefabs-2026-06-04_assets_all_2022518488.bundle": {
-    "based_on": "43a9b02c5660",
-    "note": "按上游标准改法：问号 Btn_Information x -888 -> -708（右移给英文标题腾空间），开屏动画 Momotalk pos.x 40 -> 0（居中）。贴图保持官方 256x64 不自行绘制。基于官方 202611051844。"
-  },
-  "ui-_mxload-prefabs-2026-06-04_assets_all_1444842477.bundle": {
-    "based_on": "14a7964e7a50",
-    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
-  },
-  "ui-_mxload-prefabs-2026-06-04_assets_all_492340801.bundle": {
-    "based_on": "faee2ac82f4d",
-    "note": "上游 dev-r2 spine 立绘反和谐包（日服原装高分辨率贴图 + 对应 skel/atlas），整包替换；已按当前官方 Crc 登记。"
-  },
   "uis-01_common-03_nonequipment-_mxload-textures-2026-06-04_assets_all_2254605384.bundle": {
     "based_on": "upstream-up",
     "note": "采用 UP 主的真彩色日服贴图版本（含 VICTORY/CONTINUE/WARNING 等角标）。贴图集合与官方 202611051844 完全一致，已校验结构兼容。"
