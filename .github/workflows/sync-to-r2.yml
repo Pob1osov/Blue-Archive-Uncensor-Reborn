@@ -249,6 +249,30 @@ jobs:
           MIRROR_NAMES_FILE: scripts/mirror_list.json
         run: python scripts/reconcileR2.py
 
+      # 媒体池：pool/MediaResources 下的立绘 / BGM / 过场视频 / 场景背景。
+      #
+      # 客户端请求这些对象，**404 不会回落官方源**，而是直接报
+      # 「网络连接失败」并卡在进游戏那一步（2026-11-26 实测）。
+      # 所以这条链路必须自己兜住：把 MediaManifest 里列出的对象补齐到桶里。
+      #
+      # mirrorMedia.py 是幂等的：已存在且大小一致就跳过，可反复跑。
+      # 首次全量约 46,000 个对象 / 5.8 GB，之后每次只补新增的那部分。
+      # 用仓库变量 MIRROR_MEDIA=1 打开，避免每次 cron 都扫 4.6 万次 HEAD。
+      - name: Mirror media pool to R2
+        if: >-
+          vars.MIRROR_MEDIA == '1' &&
+          steps.version.outputs.changed == 'true' &&
+          steps.build.outputs.changed == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: >-
+          python scripts/mirrorMedia.py
+          --workers 12
+          --max-failures 200
+
       - name: Update current.txt
         if: >-
           steps.version.outputs.changed == 'true' &&
