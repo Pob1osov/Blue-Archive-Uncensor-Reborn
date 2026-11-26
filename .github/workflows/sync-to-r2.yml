@@ -233,8 +233,10 @@ jobs:
       # 对不一致的对象用「assetexclusions 里的同名文件」或「官方原文件」
       # 覆盖，并在上传后再次校验。任何一项修不好就以非零码退出。
       #
-      # 注意：这一步只覆盖「R2 上已经存在但内容不对」的对象；
-      # R2 上不存在的条目一律跳过，客户端会回落到官方源。
+      # 覆盖两件事：
+      #   1) R2 上已存在但大小不对的对象 -> 用官方源覆盖
+      #   2) 白名单（scripts/mirror_list.json）里点名的新包 -> 缺失才补
+      # 其余 R2 上不存在的条目一律跳过（桶里只放约 35%，客户端会回落官方源）。
       - name: Reconcile R2 against catalog
         if: >-
           steps.version.outputs.changed == 'true' &&
@@ -244,6 +246,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          MIRROR_NAMES_FILE: scripts/mirror_list.json
         run: python scripts/reconcileR2.py
 
       - name: Update current.txt
