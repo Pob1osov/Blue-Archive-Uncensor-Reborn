@@ -28,7 +28,7 @@ OFFICIAL_BUNDLE_BASE = (
     "/prodm39/AssetBundles/Android"
 )
 
-MAX_WORKERS = 2
+MAX_WORKERS = 8
 MAX_ATTEMPTS = 4
 RETRY_BASE_SECONDS = 2
 
@@ -311,7 +311,7 @@ def main() -> int:
     transfer_config = TransferConfig(
         multipart_threshold=8 * 1024 * 1024,
         multipart_chunksize=8 * 1024 * 1024,
-        max_concurrency=2,
+        max_concurrency=4,
         use_threads=True,
     )
 
@@ -380,7 +380,9 @@ def main() -> int:
 
         if mirror_missing:
 
-            bad.extend(missing)
+            # 缺口优先：客户端缺这些包就直接进不去游戏，
+            # 脏数据（size 不符）可以让它慢慢修。
+            bad = list(missing) + bad
 
         else:
 
