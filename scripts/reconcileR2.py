@@ -363,11 +363,32 @@ def main() -> int:
                 f"catalog={entry['Size']} r2={remote_sizes[key]}"
             )
 
-    # R2 缺少的条目：客户端**不会**回落到官方源。
-    # 2026-11-26 实测：官方发布 202611191741 新增 20 个包（131.6 MB），
-    # R2 没有它们，客户端下到一半就报「网络连接失败」。
-    # 因此缺口必须补齐：从官方源下载后上传到 R2。
-    mirror_missing = os.environ.get("MIRROR_MISSING", "1") != "0"
+    # R2 缺少的条目：**不做全量镜像**。
+    # 全量镜像 = 上万个对象、几十 GB，跑不完也没必要
+    # （实测桶里只放了 ~35% 的包，客户端对没有的对象会回落官方源）。
+    #
+    # 但「刚随版本新增」的那几个包不会回落 —— 2026-11-26 实测：
+    # 官方 202611191741 新增 20 个包（131.6 MB），R2 没有它们，
+    # 客户端下到一半就报「网络连接失败」。这类缺口用白名单精确补。
+    mirror_names: set[str] = set()
+
+    mirror_file = os.environ.get("MIRROR_NAMES_FILE", "")
+
+    if mirror_file and Path(mirror_file).is_file():
+
+        try:
+
+            mirror_names = {
+                str(x) for x in json.loads(
+                    Path(mirror_file).read_text(encoding="utf-8")
+                )
+            }
+
+        except Exception as exc:
+
+            print(f"[MIRROR] 白名单读取失败: {exc}")
+
+        print(f"[MIRROR] 白名单 {len(mirror_names)} 条: {mirror_file}")
 
     if missing:
 
@@ -375,22 +396,19 @@ def main() -> int:
 
         print(
             f"[MISSING] R2 缺 {len(missing)} 个对象，"
-            f"合计 {total_missing / 1048576:.1f} MB"
+            f"合计 {total_missing / 1048576:.1f} MB（默认不镜像）"
         )
 
-        if mirror_missing:
+        chosen = [e for e in missing if e.get("Name") in mirror_names]
 
-            # 缺口优先：客户端缺这些包就直接进不去游戏，
-            # 脏数据（size 不符）可以让它慢慢修。
-            bad = list(missing) + bad
+        if chosen:
 
-        else:
+            print(
+                f"[MIRROR] 其中 {len(chosen)} 个在白名单里，"
+                f"优先补齐（{sum(int(e['Size']) for e in chosen) / 1048576:.1f} MB）"
+            )
 
-            for entry in missing[:20]:
-
-                print(f"  [SKIP] {entry['Name']}")
-
-            print("  （MIRROR_MISSING=0，本次只报告不补齐）")
+            bad = chosen + bad
 
     if not bad:
 
