@@ -1353,6 +1353,53 @@ def main() -> int:
     )
     _catalog_dir.mkdir(parents=True, exist_ok=True)
 
+    # 0) 从官方拉取**当前版本**的 Unity Catalog，覆盖仓库里冻结的那份。
+    #
+    # 为什么必须每次拉
+    # ----------------
+    # 仓库里的 catalog_Remote.json.gz 是某一版官方目录的快照。官方升版本时
+    # 会删掉一批历史 bundle（例如 202611191741 就删了
+    #   ui-uilobbyelement-_mxload-prefabs…1323040141 / spinelobbies…1450980799
+    #   / …2752273628 / eventcontent-enter_parcel…2201055780）
+    # 但旧快照里还留着它们，客户端于是按旧名字去 R2 请求 → 404 → 该 bundle
+    # 加载失败 → ArgumentException: The Object you want to instantiate is null
+    # → 大厅整屏黑、按钮/列表全消失（2026-11-27 实测）。
+    #
+    # 所以这里先拉官方的 catalog_Android.zip + .hash，解出内部
+    # catalog_Remote.json 并重建 gz，后面 5.1 的复制逻辑就都用新的了。
+    # 拉取失败时保留仓库内文件，不阻断构建。
+    try:
+        import gzip as _gzip
+        import zipfile as _zipfile
+
+        _official_zip = (
+            f"{OFFICIAL_BUNDLE_INFO_BASE}/"
+            f"{official_resource_version}/"
+            "Android/catalog_Android.zip"
+        )
+        _official_hash = (
+            f"{OFFICIAL_BUNDLE_INFO_BASE}/"
+            f"{official_resource_version}/"
+            "Android/catalog_Android.hash"
+        )
+
+        download_bytes(_official_zip, ROOT_DIR / "catalog_Android.zip")
+        download_bytes(_official_hash, ROOT_DIR / "catalog_Android.hash")
+
+        with _zipfile.ZipFile(ROOT_DIR / "catalog_Android.zip") as _zf:
+            _members = [n for n in _zf.namelist() if n.endswith("catalog_Remote.json")]
+            _data = _zf.read(_members[0] if _members else _zf.namelist()[0])
+
+        (ROOT_DIR / "catalog_Remote.json").write_bytes(_data)
+        with _gzip.open(ROOT_DIR / "catalog_Remote.json.gz", "wb", compresslevel=6) as _gf:
+            _gf.write(_data)
+        (ROOT_DIR / "catalog_Remote.hash").write_bytes(
+            (ROOT_DIR / "catalog_Android.hash").read_bytes()
+        )
+        print(f"[CATALOG] 已从官方同步当前版本 Unity Catalog（{len(_data)} B）")
+    except Exception as _e:
+        print(f"[CATALOG][WARN] 官方 catalog 同步失败，回退仓库内文件: {_e}")
+
     _copied_catalog = 0
 
     # 1) zip 放在两处，覆盖客户端可能请求的所有路径
